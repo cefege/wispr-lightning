@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "WisprLite",
+    name: "WisprLightning",
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(
-            name: "WisprLite",
-            path: "Sources/WisprLite",
+            name: "WisprLightning",
+            path: "Sources/WisprLightning",
             resources: [.copy("../../Resources/Info.plist")],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),

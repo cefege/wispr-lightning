@@ -159,7 +159,7 @@ private struct SystemDetail: View {
 
         Divider()
 
-        Text("Wispr Lite v1.0.0")
+        Text("Wispr Lightning v1.0.0")
             .font(.subheadline)
             .foregroundStyle(.tertiary)
     }
@@ -331,13 +331,13 @@ class SettingsViewModel: ObservableObject {
     func updateLaunchAgent() {
         let launchAgentsDir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents")
-        let plistPath = launchAgentsDir.appendingPathComponent("com.wisprlite.app.plist")
+        let plistPath = launchAgentsDir.appendingPathComponent("com.wisprlightning.app.plist")
 
         if settings.launchAtLogin {
             try? FileManager.default.createDirectory(at: launchAgentsDir, withIntermediateDirectories: true)
-            let execPath = Bundle.main.executablePath ?? "/Applications/Wispr Lite.app/Contents/MacOS/WisprLite"
+            let execPath = Bundle.main.executablePath ?? "/Applications/Wispr Lightning.app/Contents/MacOS/WisprLightning"
             let plist: [String: Any] = [
-                "Label": "com.wisprlite.app",
+                "Label": "com.wisprlightning.app",
                 "ProgramArguments": [execPath],
                 "RunAtLoad": true,
                 "KeepAlive": false,

@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.wisprlite.app</string>
+    <string>com.wisprlightning.app</string>
     <key>CFBundleName</key>
-    <string>Wispr Lite</string>
+    <string>Wispr Lightning</string>
     <key>CFBundleDisplayName</key>
-    <string>Wispr Lite</string>
+    <string>Wispr Lightning</string>
     <key>CFBundleExecutable</key>
-    <string>WisprLite</string>
+    <string>WisprLightning</string>
     <key>CFBundleVersion</key>
     <string>1.0.0</string>
     <key>CFBundleShortVersionString</key>
@@ -19,15 +19,15 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Wispr Lite needs microphone access to record your voice for dictation.</string>
+    <string>Wispr Lightning needs microphone access to record your voice for dictation.</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>com.wisprlite.app</string>
+            <string>com.wisprlightning.app</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>wisprlite</string>
+                <string>wisprlightning</string>
             </array>
         </dict>
     </array>

@@ -2,7 +2,7 @@ import AppKit
 import CoreGraphics
 
 class TextInjector {
-    private let injectionQueue = DispatchQueue(label: "com.wisprlite.textinjection")
+    private let injectionQueue = DispatchQueue(label: "com.wisprlightning.textinjection")
 
     func inject(text: String, completion: @escaping (_ pasteSucceeded: Bool) -> Void) {
         guard !text.isEmpty else {
@@ -60,7 +60,7 @@ class TextInjector {
             if let old = saved {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(old, forType: .string)
-                NSLog("Wispr Lite: Clipboard restored")
+                NSLog("Wispr Lightning: Clipboard restored")
             }
         }
 

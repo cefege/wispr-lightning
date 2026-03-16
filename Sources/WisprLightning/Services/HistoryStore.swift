@@ -6,15 +6,15 @@ class HistoryStore {
 
     init() {
         let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/WisprLite")
+            .appendingPathComponent("Library/Application Support/WisprLightning")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let dbPath = dir.appendingPathComponent("history.db").path
 
         if sqlite3_open(dbPath, &db) == SQLITE_OK {
             createTable()
-            NSLog("Wispr Lite: History database opened at %@", dbPath)
+            NSLog("Wispr Lightning: History database opened at %@", dbPath)
         } else {
-            NSLog("Wispr Lite: Failed to open history database")
+            NSLog("Wispr Lightning: Failed to open history database")
         }
     }
 

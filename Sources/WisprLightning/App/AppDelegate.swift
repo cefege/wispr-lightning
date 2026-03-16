@@ -3,7 +3,7 @@ import ApplicationServices
 
 private let logFile: FileHandle? = {
     let path = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/WisprLite.log").path
+        .appendingPathComponent("Library/Logs/WisprLightning.log").path
     FileManager.default.createFile(atPath: path, contents: nil)
     return FileHandle(forWritingAtPath: path)
 }()
@@ -13,7 +13,7 @@ func wLog(_ message: String) {
     let line = "[\(ts)] \(message)\n"
     logFile?.seekToEndOfFile()
     logFile?.write(line.data(using: .utf8) ?? Data())
-    NSLog("Wispr Lite: %@", message)
+    NSLog("Wispr Lightning: %@", message)
 }
 
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -53,9 +53,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         toastNotification = ToastNotification()
 
         if !session.load() {
-            NSLog("Wispr Lite: No session found. Sign in via Settings or log in to Wispr Flow first.")
+            NSLog("Wispr Lightning: No session found. Sign in via Settings or log in to Wispr Flow first.")
         } else {
-            NSLog("Wispr Lite: Session loaded for %@", session.userEmail ?? "unknown")
+            NSLog("Wispr Lightning: Session loaded for %@", session.userEmail ?? "unknown")
         }
 
         statusBarController.updateMenu()
@@ -95,14 +95,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func handleURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
         guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let url = URL(string: urlString) else { return }
-        NSLog("Wispr Lite: Received URL callback: %@", urlString)
+        NSLog("Wispr Lightning: Received URL callback: %@", urlString)
         AuthService.handleCallback(url: url, session: session) { success in
             DispatchQueue.main.async {
                 if success {
-                    NSLog("Wispr Lite: Sign in successful")
+                    NSLog("Wispr Lightning: Sign in successful")
                     NotificationCenter.default.post(name: .sessionChanged, object: nil)
                 } else {
-                    NSLog("Wispr Lite: Sign in failed")
+                    NSLog("Wispr Lightning: Sign in failed")
                 }
             }
         }

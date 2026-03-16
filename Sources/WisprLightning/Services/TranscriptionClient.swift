@@ -15,10 +15,10 @@ class TranscriptionClient {
 
         // Ensure valid token
         guard session.isValid else {
-            NSLog("Wispr Lite: Token expired, refreshing...")
+            NSLog("Wispr Lightning: Token expired, refreshing...")
             session.refresh { [weak self] success in
                 guard success, let self = self else {
-                    NSLog("Wispr Lite: Cannot transcribe — auth failed")
+                    NSLog("Wispr Lightning: Cannot transcribe — auth failed")
                     completion(nil)
                     return
                 }
@@ -94,7 +94,7 @@ class TranscriptionClient {
 
         wsTask.send(.string(authString)) { error in
             if let error = error {
-                NSLog("Wispr Lite: WS auth send failed: %@", error.localizedDescription)
+                NSLog("Wispr Lightning: WS auth send failed: %@", error.localizedDescription)
                 completion(nil)
                 return
             }
@@ -110,15 +110,15 @@ class TranscriptionClient {
                    let data = text.data(using: .utf8),
                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                    json["status"] as? String == "auth" {
-                    NSLog("Wispr Lite: WebSocket authenticated")
+                    NSLog("Wispr Lightning: WebSocket authenticated")
                     self.sendAudio(wsTask: wsTask, packets: packets, transcriptUUID: transcriptUUID, completion: completion)
                 } else {
-                    NSLog("Wispr Lite: WebSocket auth failed")
+                    NSLog("Wispr Lightning: WebSocket auth failed")
                     wsTask.cancel(with: .internalServerError, reason: nil)
                     completion(nil)
                 }
             case .failure(let error):
-                NSLog("Wispr Lite: WS receive failed: %@", error.localizedDescription)
+                NSLog("Wispr Lightning: WS receive failed: %@", error.localizedDescription)
                 completion(nil)
             }
         }
@@ -168,7 +168,7 @@ class TranscriptionClient {
 
         wsTask.send(.string(appendString)) { error in
             if let error = error {
-                NSLog("Wispr Lite: WS append send failed: %@", error.localizedDescription)
+                NSLog("Wispr Lightning: WS append send failed: %@", error.localizedDescription)
                 completion(nil)
                 return
             }
@@ -186,12 +186,12 @@ class TranscriptionClient {
 
             wsTask.send(.string(commitString)) { error in
                 if let error = error {
-                    NSLog("Wispr Lite: WS commit send failed: %@", error.localizedDescription)
+                    NSLog("Wispr Lightning: WS commit send failed: %@", error.localizedDescription)
                     completion(nil)
                     return
                 }
 
-                NSLog("Wispr Lite: Audio sent — %d packets, waiting for transcription...", packets.count)
+                NSLog("Wispr Lightning: Audio sent — %d packets, waiting for transcription...", packets.count)
                 self.receiveResult(wsTask: wsTask, transcriptUUID: transcriptUUID, packetCount: packets.count, completion: completion)
             }
         }
@@ -213,7 +213,7 @@ class TranscriptionClient {
                         let isFinal = json["final"] as? Bool ?? false
                         let resultText = llmText ?? asrText ?? ""
 
-                        NSLog("Wispr Lite: Got %@ transcript: %d chars",
+                        NSLog("Wispr Lightning: Got %@ transcript: %d chars",
                               isFinal ? "final" : "partial", resultText.count)
 
                         if isFinal {
@@ -231,19 +231,19 @@ class TranscriptionClient {
                             return
                         }
                     } else if status == "error" {
-                        NSLog("Wispr Lite: Server error: %@", json["error"] as? String ?? "unknown")
+                        NSLog("Wispr Lightning: Server error: %@", json["error"] as? String ?? "unknown")
                         wsTask.cancel(with: .internalServerError, reason: nil)
                         completion(nil)
                         return
                     } else if status == "info" {
-                        NSLog("Wispr Lite: Server info: %@", json["message"] as? String ?? "")
+                        NSLog("Wispr Lightning: Server info: %@", json["message"] as? String ?? "")
                     }
 
                     // Continue receiving
                     self?.receiveResult(wsTask: wsTask, transcriptUUID: transcriptUUID, packetCount: packetCount, completion: completion)
                 }
             case .failure(let error):
-                NSLog("Wispr Lite: WS receive failed: %@", error.localizedDescription)
+                NSLog("Wispr Lightning: WS receive failed: %@", error.localizedDescription)
                 completion(nil)
             }
         }

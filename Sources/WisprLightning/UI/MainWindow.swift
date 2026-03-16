@@ -144,7 +144,7 @@ class MainWindow {
             backing: .buffered,
             defer: false
         )
-        w.title = "Wispr Lite"
+        w.title = "Wispr Lightning"
         w.center()
         w.isReleasedWhenClosed = false
         w.minSize = NSSize(width: 480, height: 400)

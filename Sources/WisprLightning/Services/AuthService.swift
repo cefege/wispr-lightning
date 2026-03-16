@@ -3,7 +3,7 @@ import AppKit
 enum AuthService {
     static func signInWithBrowser() {
         // Open Supabase Google OAuth URL with redirect to our URL scheme
-        let redirectURI = "wisprlite://auth/callback"
+        let redirectURI = "wisprlightning://auth/callback"
         let authURL = "\(Constants.supabaseURL)/auth/v1/authorize?provider=google&redirect_to=\(redirectURI)"
         if let url = URL(string: authURL) {
             NSWorkspace.shared.open(url)
@@ -11,7 +11,7 @@ enum AuthService {
     }
 
     static func handleCallback(url: URL, session: Session, completion: @escaping (Bool) -> Void) {
-        // Parse tokens from URL fragment: wisprlite://auth/callback#access_token=...&refresh_token=...
+        // Parse tokens from URL fragment: wisprlightning://auth/callback#access_token=...&refresh_token=...
         guard let fragment = url.fragment ?? url.query else {
             completion(false)
             return

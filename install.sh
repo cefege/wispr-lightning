@@ -2,11 +2,11 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-APP_NAME="Wispr Lite"
+APP_NAME="Wispr Lightning"
 APP_BUNDLE="$APP_NAME.app"
 INSTALL_DIR="/Applications"
 
-echo "Building Wispr Lite (release)..."
+echo "Building Wispr Lightning (release)..."
 cd "$SCRIPT_DIR"
 swift build -c release
 
@@ -16,7 +16,7 @@ mkdir -p "$SCRIPT_DIR/$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$SCRIPT_DIR/$APP_BUNDLE/Contents/Resources"
 
 # Copy binary
-cp "$SCRIPT_DIR/.build/release/WisprLite" "$SCRIPT_DIR/$APP_BUNDLE/Contents/MacOS/WisprLite"
+cp "$SCRIPT_DIR/.build/release/WisprLightning" "$SCRIPT_DIR/$APP_BUNDLE/Contents/MacOS/WisprLightning"
 
 # Copy Info.plist
 cp "$SCRIPT_DIR/Resources/Info.plist" "$SCRIPT_DIR/$APP_BUNDLE/Contents/Info.plist"
@@ -49,19 +49,19 @@ for (size, name) in sizes {
     let image = NSImage(size: NSSize(width: size, height: size))
     image.lockFocus()
 
-    // Background circle
+    // Background circle — dark storm blue
     let bg = NSBezierPath(ovalIn: NSRect(x: size * 0.05, y: size * 0.05, width: size * 0.9, height: size * 0.9))
-    NSColor(red: 0x4F/255.0, green: 0xBF/255.0, blue: 0x78/255.0, alpha: 1.0).setFill()
+    NSColor(red: 0x1A/255.0, green: 0x1A/255.0, blue: 0x2E/255.0, alpha: 1.0).setFill()
     bg.fill()
 
-    // Mic symbol
-    if let symbol = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: nil) {
+    // Lightning bolt symbol
+    if let symbol = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: nil) {
         let config = NSImage.SymbolConfiguration(pointSize: size * 0.4, weight: .medium)
         let configured = symbol.withSymbolConfiguration(config)!
         let symbolSize = configured.size
         let x = (size - symbolSize.width) / 2
         let y = (size - symbolSize.height) / 2
-        NSColor.white.set()
+        NSColor(red: 1.0, green: 0.84, blue: 0.0, alpha: 1.0).set()
         configured.draw(in: NSRect(x: x, y: y, width: symbolSize.width, height: symbolSize.height),
                        from: .zero, operation: .sourceOver, fraction: 1.0)
     }

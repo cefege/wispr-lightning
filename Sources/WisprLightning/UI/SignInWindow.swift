@@ -10,11 +10,11 @@ struct SignInView: View {
         VStack(spacing: Theme.Spacing.xlarge) {
             Spacer()
 
-            Image(systemName: "mic.circle.fill")
+            Image(systemName: "bolt.circle.fill")
                 .font(.system(size: 64, weight: .light))
                 .foregroundStyle(.tint)
 
-            Text("Welcome to Wispr Lite")
+            Text("Welcome to Wispr Lightning")
                 .font(.title2.weight(.semibold))
 
             Text("Sign in with your Wispr account to start dictating anywhere on Mac.")
@@ -98,7 +98,7 @@ class SignInWindow {
             backing: .buffered,
             defer: false
         )
-        w.title = "Sign In to Wispr Lite"
+        w.title = "Sign In to Wispr Lightning"
         w.titleVisibility = .hidden
         w.titlebarAppearsTransparent = true
         w.isMovableByWindowBackground = true

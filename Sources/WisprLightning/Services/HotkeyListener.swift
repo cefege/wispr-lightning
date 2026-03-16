@@ -52,7 +52,7 @@ class HotkeyListener {
         installMonitors()
         setupEventTap()
         let labels = settings.hotkeyLabels.isEmpty ? [settings.hotkeyLabel] : settings.hotkeyLabels
-        NSLog("Wispr Lite: Hotkey listener active (press %@ to dictate)", labels.joined(separator: " or "))
+        NSLog("Wispr Lightning: Hotkey listener active (press %@ to dictate)", labels.joined(separator: " or "))
     }
 
     func rebind(keyCode: UInt16) {
@@ -164,7 +164,7 @@ class HotkeyListener {
             },
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            NSLog("Wispr Lite: CGEventTap not available — Accessibility permission may be needed")
+            NSLog("Wispr Lightning: CGEventTap not available — Accessibility permission may be needed")
             return
         }
 
@@ -172,7 +172,7 @@ class HotkeyListener {
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        NSLog("Wispr Lite: CGEventTap active")
+        NSLog("Wispr Lightning: CGEventTap active")
     }
 
     private func handleCGEvent(type: CGEventType, event: CGEvent) {

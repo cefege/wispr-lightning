@@ -15,7 +15,7 @@ class StatusBarController {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Wispr Lite")
+            button.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Wispr Lightning")
             button.image?.isTemplate = true
         }
 
@@ -46,10 +46,10 @@ class StatusBarController {
     func setRecording(_ recording: Bool) {
         if let button = statusItem.button {
             if recording {
-                button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Recording")
+                button.image = NSImage(systemSymbolName: "bolt.horizontal.fill", accessibilityDescription: "Recording")
                 button.image?.isTemplate = true
             } else {
-                button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Wispr Lite")
+                button.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Wispr Lightning")
                 button.image?.isTemplate = true
             }
         }
@@ -81,13 +81,13 @@ class StatusBarController {
 
         menu.addItem(NSMenuItem.separator())
 
-        let openItem = NSMenuItem(title: "Open Wispr Lite...", action: #selector(openMainWindow), keyEquivalent: "")
+        let openItem = NSMenuItem(title: "Open Wispr Lightning...", action: #selector(openMainWindow), keyEquivalent: "")
         openItem.target = self
         menu.addItem(openItem)
 
         menu.addItem(NSMenuItem.separator())
 
-        let quitItem = NSMenuItem(title: "Quit Wispr Lite", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
+        let quitItem = NSMenuItem(title: "Quit Wispr Lightning", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         menu.addItem(quitItem)
 
         statusItem.menu = menu

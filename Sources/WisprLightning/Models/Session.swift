@@ -25,7 +25,7 @@ class Session {
 
     static let liteSessionURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/WisprLite")
+            .appendingPathComponent("Library/Application Support/WisprLightning")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("session.json")
     }()
@@ -47,7 +47,7 @@ class Session {
     private func parseSession(_ data: [String: Any], source: String) -> Bool {
         // Find the auth-token key
         guard let tokenKey = data.keys.first(where: { $0.contains("auth-token") }) else {
-            NSLog("Wispr Lite: No auth-token key found in %@", source)
+            NSLog("Wispr Lightning: No auth-token key found in %@", source)
             return false
         }
 
@@ -78,7 +78,7 @@ class Session {
         }
 
         if accessToken != nil {
-            NSLog("Wispr Lite: Session loaded from %@ (user: %@)", source, userEmail ?? "unknown")
+            NSLog("Wispr Lightning: Session loaded from %@ (user: %@)", source, userEmail ?? "unknown")
             return true
         }
         return false
@@ -104,7 +104,7 @@ class Session {
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let newAccessToken = json["access_token"] as? String,
                   let newRefreshToken = json["refresh_token"] as? String else {
-                NSLog("Wispr Lite: Token refresh failed: %@", error?.localizedDescription ?? "unknown")
+                NSLog("Wispr Lightning: Token refresh failed: %@", error?.localizedDescription ?? "unknown")
                 completion(false)
                 return
             }
@@ -112,7 +112,7 @@ class Session {
             self.refreshToken = newRefreshToken
             self.expiresAt = json["expires_at"] as? TimeInterval ?? 0
             self.save()
-            NSLog("Wispr Lite: Token refreshed successfully")
+            NSLog("Wispr Lightning: Token refreshed successfully")
             completion(true)
         }.resume()
     }

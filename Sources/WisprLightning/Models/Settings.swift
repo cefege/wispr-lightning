@@ -15,7 +15,7 @@ class AppSettings: Codable {
 
     static let settingsURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/WisprLite")
+            .appendingPathComponent("Library/Application Support/WisprLightning")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir.appendingPathComponent("settings.json")
     }()
@@ -45,6 +45,6 @@ class AppSettings: Codable {
 }
 
 extension Notification.Name {
-    static let settingsChanged = Notification.Name("WisprLiteSettingsChanged")
+    static let settingsChanged = Notification.Name("WisprLightningSettingsChanged")
     static let sessionChanged = Notification.Name("WisprSessionChanged")
 }

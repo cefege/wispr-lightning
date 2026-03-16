@@ -34,7 +34,7 @@ class AudioRecorder {
             channels: 1,
             interleaved: true
         ) else {
-            NSLog("Wispr Lite: Failed to create target audio format")
+            NSLog("Wispr Lightning: Failed to create target audio format")
             return
         }
 
@@ -47,10 +47,10 @@ class AudioRecorder {
 
         do {
             try engine.start()
-            NSLog("Wispr Lite: Audio engine started (input: %@, rate: %.0f Hz)",
+            NSLog("Wispr Lightning: Audio engine started (input: %@, rate: %.0f Hz)",
                   settings.micDeviceName ?? "system default", hwFormat.sampleRate)
         } catch {
-            NSLog("Wispr Lite: Failed to start audio engine: %@", error.localizedDescription)
+            NSLog("Wispr Lightning: Failed to start audio engine: %@", error.localizedDescription)
             isRecording = false
         }
     }
@@ -65,7 +65,7 @@ class AudioRecorder {
         let result = packets
         lock.unlock()
 
-        NSLog("Wispr Lite: Recording stopped — %d packets (%.1fs)",
+        NSLog("Wispr Lightning: Recording stopped — %d packets (%.1fs)",
               result.count, Double(result.count) * Double(Constants.chunkDurationMs) / 1000.0)
         return result
     }
