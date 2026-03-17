@@ -4,12 +4,11 @@ class ToastNotification {
     private var panel: NSPanel?
 
     func show(wordCount: Int) {
-        let wordLabel = wordCount == 1 ? "word" : "words"
         showToast(
-            message: "Dictated \(wordCount) \(wordLabel)",
-            symbolName: "checkmark.circle.fill",
-            tintColor: Theme.Colors.accent,
-            autoDismissAfter: 2.0
+            message: "Done",
+            symbolName: "bolt.fill",
+            tintColor: .white,
+            autoDismissAfter: 1.5
         )
     }
 
@@ -17,7 +16,7 @@ class ToastNotification {
         // Dismiss any existing toast
         dismiss()
 
-        let panelWidth: CGFloat = message.count > 30 ? 340 : 220
+        let panelWidth: CGFloat = message.count > 30 ? 340 : 120
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: panelWidth, height: 40),
             styleMask: [.nonactivatingPanel, .fullSizeContentView],
@@ -43,25 +42,31 @@ class ToastNotification {
 
         let stack = NSStackView()
         stack.orientation = .horizontal
-        stack.spacing = Theme.Spacing.medium
+        stack.alignment = .centerY
+        stack.spacing = 6
         stack.edgeInsets = NSEdgeInsets(top: 0, left: Theme.Spacing.large, bottom: 0, right: Theme.Spacing.large)
 
         // Icon
         if let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) {
             let imageView = NSImageView(image: image)
-            imageView.symbolConfiguration = .init(pointSize: 16, weight: .medium)
+            imageView.symbolConfiguration = .init(pointSize: 14, weight: .medium)
             imageView.contentTintColor = tintColor
-            imageView.setSize(width: 20, height: 20)
+            imageView.setSize(width: 18, height: 18)
             stack.addArrangedSubview(imageView)
         }
 
         let label = NSTextField(labelWithString: message)
         label.font = Theme.Fonts.body
         label.textColor = .labelColor
+        label.alignment = .center
         stack.addArrangedSubview(label)
 
         effectView.addSubview(stack)
-        stack.pinToSuperview()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: effectView.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: effectView.centerYAnchor),
+        ])
 
         // Position at bottom-center of screen
         if let screen = NSScreen.main {

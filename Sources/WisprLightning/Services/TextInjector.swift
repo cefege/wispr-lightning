@@ -4,6 +4,42 @@ import CoreGraphics
 class TextInjector {
     private let injectionQueue = DispatchQueue(label: "com.wisprlightning.textinjection")
 
+    /// Read the currently selected text via Accessibility API.
+    /// Returns the selected text string, or nil if no selection.
+    static func readSelectedText() -> String? {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        let focusResult = AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        guard focusResult == .success, let focused = focusedElement else {
+            return nil
+        }
+        let element = unsafeBitCast(focused, to: AXUIElement.self)
+        var value: AnyObject?
+        let valueResult = AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &value)
+        guard valueResult == .success, let text = value as? String, !text.isEmpty else {
+            return nil
+        }
+        return text
+    }
+
+    /// Read the focused text field's current value via Accessibility API.
+    /// Returns the text as a single-element array, or empty array if unavailable.
+    static func readFocusedElementText() -> [String] {
+        let systemWide = AXUIElementCreateSystemWide()
+        var focusedElement: AnyObject?
+        let focusResult = AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        guard focusResult == .success, let focused = focusedElement else {
+            return []
+        }
+        let element = unsafeBitCast(focused, to: AXUIElement.self)
+        var value: AnyObject?
+        let valueResult = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+        guard valueResult == .success, let text = value as? String, !text.isEmpty else {
+            return []
+        }
+        return [text]
+    }
+
     func inject(text: String, completion: @escaping (_ pasteSucceeded: Bool) -> Void) {
         guard !text.isEmpty else {
             completion(false)
@@ -12,26 +48,36 @@ class TextInjector {
         wLog("TextInjector.inject called with \(text.count) chars")
 
         injectionQueue.async {
-            // Delay to ensure hotkey release is fully processed
-            Thread.sleep(forTimeInterval: 0.1)
+            // Brief delay to ensure hotkey release is fully processed
+            Thread.sleep(forTimeInterval: 0.01)
             self.pasteViaClipboard(text: text, completion: completion)
         }
     }
 
     private func pasteViaClipboard(text: String, completion: @escaping (_ pasteSucceeded: Bool) -> Void) {
         // Pasteboard operations must happen on main thread
-        var oldContents: String? = nil
+        var savedItems: [[(NSPasteboard.PasteboardType, Data)]] = []
         DispatchQueue.main.sync {
             let pasteboard = NSPasteboard.general
-            oldContents = pasteboard.string(forType: .string)
+            // Snapshot all pasteboard items with all their types
+            if let items = pasteboard.pasteboardItems {
+                for item in items {
+                    var typeDataPairs: [(NSPasteboard.PasteboardType, Data)] = []
+                    for type in item.types {
+                        if let data = item.data(forType: type) {
+                            typeDataPairs.append((type, data))
+                        }
+                    }
+                    if !typeDataPairs.isEmpty {
+                        savedItems.append(typeDataPairs)
+                    }
+                }
+            }
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
         }
 
         wLog("Clipboard set, simulating Cmd+V")
-
-        // Small delay to ensure pasteboard is ready
-        Thread.sleep(forTimeInterval: 0.05)
 
         // Simulate Cmd+V from background thread (CGEvent is thread-safe)
         let source = CGEventSource(stateID: .hidSystemState)
@@ -50,17 +96,24 @@ class TextInjector {
         wLog("Cmd+V posted")
 
         // Wait for paste to be processed, then verify
-        Thread.sleep(forTimeInterval: 0.3)
+        Thread.sleep(forTimeInterval: 0.05)
 
         let pasteOK = verifyPaste(expected: text)
 
-        // Always restore old clipboard after a delay
-        let saved = oldContents
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if let old = saved {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(old, forType: .string)
-                NSLog("Wispr Lightning: Clipboard restored")
+        // Restore old clipboard after paste is consumed
+        let saved = savedItems
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            if !saved.isEmpty {
+                let pasteboard = NSPasteboard.general
+                pasteboard.clearContents()
+                for itemData in saved {
+                    let newItem = NSPasteboardItem()
+                    for (type, data) in itemData {
+                        newItem.setData(data, forType: type)
+                    }
+                    pasteboard.writeObjects([newItem])
+                }
+                NSLog("Wispr Lightning: Clipboard restored (%d items)", saved.count)
             }
         }
 

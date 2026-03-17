@@ -13,4 +13,9 @@ enum Constants {
     static let maxRecordingSeconds = 300
     static let warningSeconds = 240
     static let finalWarningSeconds = 270
+
+    // Creator mode durations
+    static let creatorMaxRecordingSeconds = 600
+    static let creatorWarningSeconds = 540
+    static let creatorFinalWarningSeconds = 570
 }

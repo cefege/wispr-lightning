@@ -2,6 +2,7 @@ import AppKit
 
 class MusicController {
     private let settings: AppSettings
+    private let lock = NSLock()
     private var musicWasPlaying = false
     private var spotifyWasPlaying = false
 
@@ -12,38 +13,58 @@ class MusicController {
     func pauseMusic() {
         guard settings.muteMusic else { return }
 
-        // Check and pause Apple Music (only if running)
+        let group = DispatchGroup()
+
+        // Check and pause Apple Music and Spotify in parallel
         if isAppRunning("com.apple.Music") {
-            musicWasPlaying = runAppleScript("tell application \"Music\" to player state is playing") == "true"
-            if musicWasPlaying {
-                _ = runAppleScript("tell application \"Music\" to pause")
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let paused = self.runAppleScript(
+                    "tell application \"Music\" to if player state is playing then\npause\nreturn \"paused\"\nend if"
+                ) == "paused"
+                self.lock.lock()
+                self.musicWasPlaying = paused
+                self.lock.unlock()
+                group.leave()
             }
         }
 
-        // Check and pause Spotify (only if running)
         if isAppRunning("com.spotify.client") {
-            spotifyWasPlaying = runAppleScript("tell application \"Spotify\" to player state is playing") == "true"
-            if spotifyWasPlaying {
-                _ = runAppleScript("tell application \"Spotify\" to pause")
+            group.enter()
+            DispatchQueue.global(qos: .userInitiated).async {
+                let paused = self.runAppleScript(
+                    "tell application \"Spotify\" to if player state is playing then\npause\nreturn \"paused\"\nend if"
+                ) == "paused"
+                self.lock.lock()
+                self.spotifyWasPlaying = paused
+                self.lock.unlock()
+                group.leave()
             }
         }
+
+        group.wait()
     }
 
     func resumeMusic() {
         guard settings.muteMusic else { return }
 
-        if musicWasPlaying {
+        lock.lock()
+        let resumeMusic = musicWasPlaying
+        let resumeSpotify = spotifyWasPlaying
+        musicWasPlaying = false
+        spotifyWasPlaying = false
+        lock.unlock()
+
+        if resumeMusic {
             _ = runAppleScript("tell application \"Music\" to play")
-            musicWasPlaying = false
         }
-        if spotifyWasPlaying {
+        if resumeSpotify {
             _ = runAppleScript("tell application \"Spotify\" to play")
-            spotifyWasPlaying = false
         }
     }
 
     private func isAppRunning(_ bundleIdentifier: String) -> Bool {
-        !NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == bundleIdentifier }.isEmpty
+        NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == bundleIdentifier }
     }
 
     private func runAppleScript(_ source: String) -> String? {

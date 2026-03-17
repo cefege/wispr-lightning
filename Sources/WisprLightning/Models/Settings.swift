@@ -12,6 +12,44 @@ class AppSettings: Codable {
     var showInDock: Bool = false
     var enableSounds: Bool = true
     var muteMusic: Bool = false
+    var aiFormatting: Bool = true
+    var autoCleanupLevel: String = "light"
+    var commandModeEnabled: Bool = true
+    var useScreenContext: Bool = false
+    var useAccessibilityContext: Bool = true
+    var shareUsageData: Bool = false
+    var styleDetectionEnabled: Bool = true
+    var personalizationStyles: [String: String] = ["work": "default", "email": "default", "personal": "default", "other": "default"]
+    var hyperlinkOn: Bool = false
+    var autoLearnWords: Bool = true
+
+    // Polish
+    var polishEnabled: Bool = false
+    var polishInstructions: [String: Bool] = [
+        "Make more concise": true,
+        "Reword for clarity": true,
+        "Maintain your tone": true,
+        "Reorder for readability": true,
+        "Add structure for readability": true,
+        "Clarify main point": false,
+        "Refine phrasing for impact": false
+    ]
+    var activePolishInstructions: [String] {
+        polishInstructions.filter { $0.value }.map { $0.key }
+    }
+    var autoPolish: Bool = false
+    var polishHotkeyKeyCodes: [UInt16] = [62]  // Right Control
+    var polishHotkeyLabels: [String] = ["Right Control"]
+
+    // Email Signatures
+    var emailAutoSignature: Bool = false
+    var emailSignatureOption: String = "written_with_lightning"
+
+    // Creator Mode
+    var creatorMode: Bool = false
+
+    // Sound Packs
+    var selectedSoundPack: String? = nil
 
     static let settingsURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
@@ -47,4 +85,5 @@ class AppSettings: Codable {
 extension Notification.Name {
     static let settingsChanged = Notification.Name("WisprLightningSettingsChanged")
     static let sessionChanged = Notification.Name("WisprSessionChanged")
+    static let previewSoundPack = Notification.Name("WisprPreviewSoundPack")
 }

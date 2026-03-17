@@ -3,25 +3,32 @@ import CoreAudio
 
 class AudioRecorder {
     private let settings: AppSettings
-    private var audioEngine: AVAudioEngine?
+    private var audioEngine: AVAudioEngine
     private var packets: [Data] = []
     private let lock = NSLock()
     private(set) var isRecording = false
+    private var cachedConverter: AVAudioConverter?
+    private var cachedDeviceID: AudioDeviceID?
+    private var cachedDeviceUID: String?
 
     init(settings: AppSettings) {
         self.settings = settings
+        self.audioEngine = AVAudioEngine()
     }
 
     func start() {
         packets = []
         isRecording = true
 
-        let engine = AVAudioEngine()
-        self.audioEngine = engine
+        let engine = audioEngine
 
-        // Select input device if specified
+        // Select input device if specified — use cached ID when UID hasn't changed
         if let deviceUID = settings.micDeviceUID {
-            setInputDevice(uid: deviceUID)
+            if deviceUID == cachedDeviceUID, let cachedID = cachedDeviceID {
+                setInputDeviceDirect(deviceID: cachedID)
+            } else {
+                setInputDevice(uid: deviceUID)
+            }
         }
 
         let inputNode = engine.inputNode
@@ -36,6 +43,13 @@ class AudioRecorder {
         ) else {
             NSLog("Wispr Lightning: Failed to create target audio format")
             return
+        }
+
+        // Cache the converter if formats haven't changed
+        if let converter = cachedConverter, converter.inputFormat == hwFormat, converter.outputFormat == targetFormat {
+            // reuse existing converter
+        } else {
+            cachedConverter = AVAudioConverter(from: hwFormat, to: targetFormat)
         }
 
         // Install tap at hardware format, then convert
@@ -57,9 +71,8 @@ class AudioRecorder {
 
     func stop() -> [Data] {
         isRecording = false
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine?.stop()
-        audioEngine = nil
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
 
         lock.lock()
         let result = packets
@@ -71,7 +84,7 @@ class AudioRecorder {
     }
 
     private func processBuffer(_ buffer: AVAudioPCMBuffer, from sourceFormat: AVAudioFormat, to targetFormat: AVAudioFormat) {
-        guard let converter = AVAudioConverter(from: sourceFormat, to: targetFormat) else { return }
+        guard let converter = cachedConverter else { return }
 
         let ratio = targetFormat.sampleRate / sourceFormat.sampleRate
         let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
@@ -107,9 +120,24 @@ class AudioRecorder {
     }
 
     func cleanup() {
-        audioEngine?.inputNode.removeTap(onBus: 0)
-        audioEngine?.stop()
-        audioEngine = nil
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
+        cachedConverter = nil
+    }
+
+    private func setInputDeviceDirect(deviceID: AudioDeviceID) {
+        var mutableID = deviceID
+        var inputAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &inputAddress, 0, nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size),
+            &mutableID
+        )
     }
 
     private func setInputDevice(uid: String) {
@@ -140,18 +168,10 @@ class AudioRecorder {
             AudioObjectGetPropertyData(id, &uidAddress, 0, nil, &uidSize, &deviceUID)
 
             if (deviceUID as String) == uid {
-                var mutableID = id
-                var inputAddress = AudioObjectPropertyAddress(
-                    mSelector: kAudioHardwarePropertyDefaultInputDevice,
-                    mScope: kAudioObjectPropertyScopeGlobal,
-                    mElement: kAudioObjectPropertyElementMain
-                )
-                AudioObjectSetPropertyData(
-                    AudioObjectID(kAudioObjectSystemObject),
-                    &inputAddress, 0, nil,
-                    UInt32(MemoryLayout<AudioDeviceID>.size),
-                    &mutableID
-                )
+                // Cache for future calls
+                cachedDeviceID = id
+                cachedDeviceUID = uid
+                setInputDeviceDirect(deviceID: id)
                 return
             }
         }

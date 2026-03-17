@@ -2,20 +2,12 @@ import Foundation
 import SQLite3
 
 class HistoryStore {
-    private var db: OpaquePointer?
+    private let dbManager: DatabaseManager
+    private var db: OpaquePointer? { dbManager.db }
 
-    init() {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/WisprLightning")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let dbPath = dir.appendingPathComponent("history.db").path
-
-        if sqlite3_open(dbPath, &db) == SQLITE_OK {
-            createTable()
-            NSLog("Wispr Lightning: History database opened at %@", dbPath)
-        } else {
-            NSLog("Wispr Lightning: Failed to open history database")
-        }
+    init(dbManager: DatabaseManager) {
+        self.dbManager = dbManager
+        createTable()
     }
 
     private func createTable() {
@@ -32,10 +24,10 @@ class HistoryStore {
                 language TEXT
             );
             """
-        exec(sql)
+        dbManager.exec(sql)
     }
 
-    func addEntry(result: TranscriptResult, appInfo: [String: String]) {
+    func addEntry(result: TranscriptResult, appInfo: [String: String], language: String = "en") {
         let sql = """
             INSERT OR REPLACE INTO transcripts
             (id, asr_text, formatted_text, timestamp, app_name, app_bundle_id, duration, num_words, language)
@@ -46,14 +38,14 @@ class HistoryStore {
         defer { sqlite3_finalize(stmt) }
 
         sqlite3_bind_text(stmt, 1, (result.id as NSString).utf8String, -1, nil)
-        bindOptionalText(stmt, 2, result.asrText)
-        bindOptionalText(stmt, 3, result.formattedText)
+        dbManager.bindOptionalText(stmt, 2, result.asrText)
+        dbManager.bindOptionalText(stmt, 3, result.formattedText)
         sqlite3_bind_double(stmt, 4, Date().timeIntervalSince1970)
         sqlite3_bind_text(stmt, 5, ((appInfo["name"] ?? "") as NSString).utf8String, -1, nil)
         sqlite3_bind_text(stmt, 6, ((appInfo["bundle_id"] ?? "") as NSString).utf8String, -1, nil)
         sqlite3_bind_double(stmt, 7, result.duration)
         sqlite3_bind_int(stmt, 8, Int32(result.numWords))
-        sqlite3_bind_text(stmt, 9, ("en" as NSString).utf8String, -1, nil)
+        sqlite3_bind_text(stmt, 9, (language as NSString).utf8String, -1, nil)
 
         sqlite3_step(stmt)
     }
@@ -92,46 +84,44 @@ class HistoryStore {
     }
 
     func deleteEntry(id: String) {
-        exec("DELETE FROM transcripts WHERE id = '\(id)';")
+        let sql = "DELETE FROM transcripts WHERE id = ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_text(stmt, 1, (id as NSString).utf8String, -1, nil)
+        sqlite3_step(stmt)
     }
 
     func clearAll() {
-        exec("DELETE FROM transcripts;")
+        dbManager.exec("DELETE FROM transcripts;")
+    }
+
+    func todayStats() -> (dictations: Int, words: Int) {
+        let startOfDay = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        let sql = "SELECT COUNT(*), COALESCE(SUM(num_words), 0) FROM transcripts WHERE timestamp >= ?;"
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return (0, 0) }
+        defer { sqlite3_finalize(stmt) }
+        sqlite3_bind_double(stmt, 1, startOfDay)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return (0, 0) }
+        return (Int(sqlite3_column_int(stmt, 0)), Int(sqlite3_column_int(stmt, 1)))
     }
 
     func close() {
-        sqlite3_close(db)
-        db = nil
+        // Closing is now handled by DatabaseManager
     }
 
     private func entryFromRow(_ stmt: OpaquePointer?) -> TranscriptEntry {
         TranscriptEntry(
-            id: columnText(stmt, 0) ?? "",
-            asrText: columnText(stmt, 1),
-            formattedText: columnText(stmt, 2),
+            id: dbManager.columnText(stmt, 0) ?? "",
+            asrText: dbManager.columnText(stmt, 1),
+            formattedText: dbManager.columnText(stmt, 2),
             timestamp: Date(timeIntervalSince1970: sqlite3_column_double(stmt, 3)),
-            appName: columnText(stmt, 4) ?? "",
-            appBundleId: columnText(stmt, 5) ?? "",
+            appName: dbManager.columnText(stmt, 4) ?? "",
+            appBundleId: dbManager.columnText(stmt, 5) ?? "",
             duration: sqlite3_column_double(stmt, 6),
             numWords: Int(sqlite3_column_int(stmt, 7)),
-            language: columnText(stmt, 8) ?? "en"
+            language: dbManager.columnText(stmt, 8) ?? "en"
         )
-    }
-
-    private func columnText(_ stmt: OpaquePointer?, _ index: Int32) -> String? {
-        guard let cStr = sqlite3_column_text(stmt, index) else { return nil }
-        return String(cString: cStr)
-    }
-
-    private func bindOptionalText(_ stmt: OpaquePointer?, _ index: Int32, _ value: String?) {
-        if let value = value {
-            sqlite3_bind_text(stmt, index, (value as NSString).utf8String, -1, nil)
-        } else {
-            sqlite3_bind_null(stmt, index)
-        }
-    }
-
-    private func exec(_ sql: String) {
-        sqlite3_exec(db, sql, nil, nil, nil)
     }
 }

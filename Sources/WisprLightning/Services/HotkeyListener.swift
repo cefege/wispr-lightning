@@ -5,11 +5,14 @@ class HotkeyListener {
     private let settings: AppSettings
     private let onPress: () -> Void
     private let onRelease: () -> Void
+    var onPolishPress: (() -> Void)?
     private var keyDown = false
     private var activeKeyCode: UInt16? // which hotkey triggered the current recording
     private var monitors: [Any] = []
     private var eventTap: CFMachPort?
     private var _hotkeySet: Set<UInt16> = []
+    private var _polishKeyCodes: Set<UInt16> = []
+    private var lastPolishTriggerTime: Date?
 
     static let keycodeLabels: [UInt16: String] = [
         59: "Left Control",
@@ -33,6 +36,7 @@ class HotkeyListener {
     private func rebuildHotkeySet() {
         let codes = settings.hotkeyKeyCodes
         _hotkeySet = codes.isEmpty ? [settings.hotkeyKeyCode] : Set(codes)
+        _polishKeyCodes = Set(settings.polishHotkeyKeyCodes)
     }
 
     init(settings: AppSettings, onPress: @escaping () -> Void, onRelease: @escaping () -> Void) {
@@ -99,8 +103,26 @@ class HotkeyListener {
         activeKeyCode = nil
     }
 
+    private func triggerPolish() {
+        let now = Date()
+        if let last = lastPolishTriggerTime, now.timeIntervalSince(last) < 0.5 { return }
+        lastPolishTriggerTime = now
+        if settings.polishEnabled, let polishHandler = onPolishPress {
+            DispatchQueue.main.async { polishHandler() }
+        }
+    }
+
     private func handleFlagsChanged(_ event: NSEvent) {
         let keycode = event.keyCode
+
+        // Polish hotkey: modifier key used as standalone trigger
+        if _polishKeyCodes.contains(keycode) && !hotkeySet.contains(keycode) {
+            if Self.isModifierDown(keycode: keycode, flags: event.modifierFlags) {
+                triggerPolish()
+            }
+            return
+        }
+
         guard hotkeySet.contains(keycode) else { return }
 
         let isPressed = Self.isModifierDown(keycode: keycode, flags: event.modifierFlags)
@@ -117,6 +139,12 @@ class HotkeyListener {
     }
 
     private func handleKeyEvent(_ event: NSEvent) {
+        // Polish hotkey: regular key (only fires when CGEventTap is unavailable)
+        if event.type == .keyDown && _polishKeyCodes.contains(event.keyCode) && !isModifierKeycode(event.keyCode) {
+            triggerPolish()
+            return
+        }
+
         guard hotkeySet.contains(event.keyCode) else { return }
         guard !isModifierKeycode(event.keyCode) else { return }
 
@@ -178,9 +206,8 @@ class HotkeyListener {
     private func handleCGEvent(type: CGEventType, event: CGEvent) {
         if type == .flagsChanged {
             let keycode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-            guard hotkeySet.contains(keycode) else { return }
-
             let flags = event.flags
+
             let isPressed: Bool
             switch keycode {
             case 59, 62: isPressed = flags.contains(.maskControl)
@@ -191,11 +218,44 @@ class HotkeyListener {
             default: return
             }
 
+            // Polish hotkey: modifier key used as standalone trigger
+            if _polishKeyCodes.contains(keycode) && !hotkeySet.contains(keycode) {
+                if isPressed { triggerPolish() }
+                return
+            }
+
+            guard hotkeySet.contains(keycode) else { return }
+
             if isPressed && !keyDown {
                 keyDown = true
                 activeKeyCode = keycode
                 DispatchQueue.main.async { self.onPress() }
             } else if !isPressed && keyDown && activeKeyCode == keycode {
+                keyDown = false
+                activeKeyCode = nil
+                DispatchQueue.main.async { self.onRelease() }
+            }
+        } else if type == .keyDown {
+            let keycode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+
+            // Polish hotkey: regular key
+            if _polishKeyCodes.contains(keycode) && !isModifierKeycode(keycode) {
+                triggerPolish()
+                return
+            }
+
+            // Dictation hotkeys (non-modifier keys)
+            guard hotkeySet.contains(keycode) else { return }
+            guard !isModifierKeycode(keycode) else { return }
+
+            if !keyDown {
+                keyDown = true
+                activeKeyCode = keycode
+                DispatchQueue.main.async { self.onPress() }
+            }
+        } else if type == .keyUp {
+            let keycode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+            if keyDown && activeKeyCode == keycode {
                 keyDown = false
                 activeKeyCode = nil
                 DispatchQueue.main.async { self.onRelease() }

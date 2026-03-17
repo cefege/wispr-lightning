@@ -9,18 +9,25 @@ class RecordingOverlay {
     private var spinner: NSProgressIndicator?
     private var warningState = 0
     private var errorDismissTimer: Timer?
+    private var retryButton: NSButton?
+    private var dismissButton: NSButton?
+    private var onRetryAction: (() -> Void)?
+    private var onDismissAction: (() -> Void)?
 
     func show() {
         if panel != nil {
             // Reset state for new recording
             warningState = 0
             timeLabel?.isHidden = true
+            retryButton?.isHidden = true
+            dismissButton?.isHidden = true
+            onRetryAction = nil
+            onDismissAction = nil
             effectView?.layer?.backgroundColor = nil
             if let mainLabel = mainLabel {
                 mainLabel.stringValue = "Recording…"
             }
             resizePanel(width: 130)
-            repositionPanel()
             panel?.orderFront(nil)
             startPulsing()
             return
@@ -83,10 +90,28 @@ class RecordingOverlay {
         tLabel.isHidden = true
         self.timeLabel = tLabel
 
+        // Retry button (hidden by default, shown in retryable error state)
+        let retry = NSButton(title: "Retry", target: self, action: #selector(retryButtonClicked))
+        retry.bezelStyle = .rounded
+        retry.controlSize = .small
+        retry.font = Theme.Fonts.body
+        retry.isHidden = true
+        self.retryButton = retry
+
+        // Dismiss button (hidden by default)
+        let dismiss = NSButton(title: "✕", target: self, action: #selector(dismissButtonClicked))
+        dismiss.bezelStyle = .inline
+        dismiss.isBordered = false
+        dismiss.font = Theme.Fonts.body
+        dismiss.isHidden = true
+        self.dismissButton = dismiss
+
         stack.addArrangedSubview(dot)
         stack.addArrangedSubview(spin)
         stack.addArrangedSubview(label)
         stack.addArrangedSubview(tLabel)
+        stack.addArrangedSubview(retry)
+        stack.addArrangedSubview(dismiss)
 
         effectView.addSubview(stack)
         stack.pinToSuperview()
@@ -104,6 +129,10 @@ class RecordingOverlay {
         spinner?.stopAnimation(nil)
         spinner?.isHidden = true
         dotView?.isHidden = false
+        retryButton?.isHidden = true
+        dismissButton?.isHidden = true
+        onRetryAction = nil
+        onDismissAction = nil
         panel?.orderOut(nil)
     }
 
@@ -117,19 +146,11 @@ class RecordingOverlay {
         spinner?.startAnimation(nil)
         mainLabel?.stringValue = "Processing…"
         resizePanel(width: 145)
-        repositionPanel()
         panel?.orderFront(nil)
     }
 
     func showError(message: String) {
-        spinner?.stopAnimation(nil)
-        spinner?.isHidden = true
-        dotView?.isHidden = true
-        mainLabel?.stringValue = message
-        effectView?.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.3).cgColor
-        resizePanel(width: 180)
-        repositionPanel()
-        panel?.orderFront(nil)
+        configureErrorState(message: message, width: 180)
         errorDismissTimer?.invalidate()
         errorDismissTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
             self?.hide()
@@ -148,7 +169,6 @@ class RecordingOverlay {
         if timeLabel?.isHidden == true {
             timeLabel?.isHidden = false
             resizePanel(width: 200)
-            repositionPanel()
         }
         timeLabel?.stringValue = timeStr
     }
@@ -165,6 +185,52 @@ class RecordingOverlay {
         effectView?.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.3).cgColor
     }
 
+    func showRetryableError(message: String, onRetry: @escaping () -> Void, onDismiss: @escaping () -> Void) {
+        configureErrorState(message: message, width: 260)
+
+        onRetryAction = onRetry
+        onDismissAction = onDismiss
+        retryButton?.isHidden = false
+        dismissButton?.isHidden = false
+
+        // No auto-dismiss timer — persistent until user acts
+        errorDismissTimer?.invalidate()
+        errorDismissTimer = nil
+    }
+
+    func showRetrying(attempt: Int, maxAttempts: Int) {
+        stopPulsing()
+        dotView?.isHidden = true
+        retryButton?.isHidden = true
+        dismissButton?.isHidden = true
+        timeLabel?.isHidden = true
+        spinner?.isHidden = false
+        spinner?.startAnimation(nil)
+        mainLabel?.stringValue = "Retrying… (\(attempt)/\(maxAttempts))"
+        effectView?.layer?.backgroundColor = NSColor.systemYellow.withAlphaComponent(0.2).cgColor
+        resizePanel(width: 175)
+        panel?.orderFront(nil)
+    }
+
+    @objc private func retryButtonClicked() {
+        onRetryAction?()
+    }
+
+    @objc private func dismissButtonClicked() {
+        onDismissAction?()
+    }
+
+    private func configureErrorState(message: String, width: CGFloat) {
+        spinner?.stopAnimation(nil)
+        spinner?.isHidden = true
+        dotView?.isHidden = true
+        timeLabel?.isHidden = true
+        mainLabel?.stringValue = message
+        effectView?.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.3).cgColor
+        resizePanel(width: width)
+        panel?.orderFront(nil)
+    }
+
     private func repositionPanel() {
         guard let panel = panel, let screen = NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
@@ -174,9 +240,12 @@ class RecordingOverlay {
     }
 
     private func resizePanel(width: CGFloat) {
-        guard let panel = panel else { return }
+        guard let panel = panel, let screen = NSScreen.main else { return }
         var frame = panel.frame
         frame.size.width = width
+        let screenFrame = screen.visibleFrame
+        frame.origin.x = screenFrame.midX - width / 2
+        frame.origin.y = screenFrame.minY + 50
         panel.setFrame(frame, display: true)
     }
 
