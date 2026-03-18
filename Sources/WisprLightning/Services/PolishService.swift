@@ -64,6 +64,8 @@ class PolishService {
             return
         }
 
+        wLogVerbose("Polish request body: \(String(data: bodyData, encoding: .utf8) ?? "")")
+
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -86,7 +88,7 @@ class PolishService {
                 return
             }
 
-            NSLog("Wispr Lightning: Polish response: %@", String(data: data, encoding: .utf8) ?? "")
+            wLogVerbose("Polish response: \(String(data: data, encoding: .utf8) ?? "")")
 
             guard let polishedText = json["polished_text"] as? String, !polishedText.isEmpty else {
                 let status = json["status"] as? String ?? "unknown"

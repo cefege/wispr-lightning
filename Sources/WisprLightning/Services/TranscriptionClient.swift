@@ -108,6 +108,7 @@ class TranscriptionClient {
         let appType = (appInfo["type"] ?? "other").lowercased()
 
         // 1. Send auth message
+        let pipeline = settings.aiFormatting ? ["transcribe", "format"] : ["transcribe"]
         let authMsg: [String: Any] = [
             "type": "auth",
             "access_token": session.accessToken ?? "",
@@ -123,7 +124,7 @@ class TranscriptionClient {
                 "ocr_context": ocrContext,
                 "dictionary_context": (dictionaryStore?.getVocabularyPhrases() ?? []) as Any,
                 "dictionary_replacements": (dictionaryStore?.getReplacements() ?? [:]) as Any,
-                "dictionary_snippets": (dictionaryStore?.getSnippets() ?? [:]) as Any,
+                "dictionary_snippets": (dictionaryStore?.getSnippets() ?? [:]).mapValues { [$0] } as Any,
                 "user_first_name": session.userFirstName ?? "",
                 "user_last_name": session.userLastName ?? "",
                 "textbox_contents": [:] as [String: Any],
@@ -140,7 +141,7 @@ class TranscriptionClient {
                 "client_version": Constants.clientVersion,
                 "transcript_entity_uuid": transcriptUUID
             ] as [String: Any],
-            "pipeline": settings.aiFormatting ? ["transcribe", "format"] : ["transcribe"],
+            "pipeline": pipeline,
             "job_selectors": (settings.creatorMode ? ["creator"] : []) as [Any],
             "cleanup_level": settings.autoCleanupLevel,
             "command_mode": settings.commandModeEnabled,
@@ -176,6 +177,8 @@ class TranscriptionClient {
             encodeGroup = group
         }
 
+        wLogVerbose("WS sending auth — token: \(String((session.accessToken ?? "").prefix(8)))..., app: \(appType), pipeline: \(pipeline.joined(separator: ","))")
+
         // Send auth message
         wsTask.send(.string(authString)) { error in
             if let error = error {
@@ -192,24 +195,32 @@ class TranscriptionClient {
             case .success(let message):
                 if case .string(let text) = message,
                    let data = text.data(using: .utf8),
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   json["status"] as? String == "auth" {
-                    NSLog("Wispr Lightning: WebSocket authenticated")
-                    let sendAudio = {
-                        self.sendPreparedAudio(wsTask: wsTask, appendString: preparedAppendString, packetCount: packets.count, transcriptUUID: transcriptUUID, completion: safeComplete)
-                    }
-                    if let group = encodeGroup {
-                        group.notify(queue: self.encodingQueue, execute: sendAudio)
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    let statusWord = json["status"] as? String ?? "unknown"
+                    wLog("WS auth response: status=\(statusWord)")
+                    wLogVerbose("WS auth response full: \(text)")
+                    if statusWord == "auth" {
+                        wLog("WebSocket authenticated")
+                        let sendAudio = {
+                            self.sendPreparedAudio(wsTask: wsTask, appendString: preparedAppendString, packetCount: packets.count, transcriptUUID: transcriptUUID, completion: safeComplete)
+                        }
+                        if let group = encodeGroup {
+                            group.notify(queue: self.encodingQueue, execute: sendAudio)
+                        } else {
+                            sendAudio()
+                        }
                     } else {
-                        sendAudio()
+                        wLog("WebSocket auth failed — unexpected response")
+                        wsTask.cancel(with: .internalServerError, reason: nil)
+                        safeComplete(.failure(.authFailed))
                     }
                 } else {
-                    NSLog("Wispr Lightning: WebSocket auth failed")
+                    wLog("WebSocket auth failed — non-string message received")
                     wsTask.cancel(with: .internalServerError, reason: nil)
                     safeComplete(.failure(.authFailed))
                 }
             case .failure(let error):
-                NSLog("Wispr Lightning: WS receive failed: %@", error.localizedDescription)
+                wLog("WS receive failed: \(error.localizedDescription)")
                 safeComplete(.failure(.connectionFailed))
             }
         }
@@ -264,6 +275,7 @@ class TranscriptionClient {
             return
         }
 
+        wLogVerbose("WS sending append — \(packetCount) packets")
         wsTask.send(.string(appendString)) { error in
             if let error = error {
                 NSLog("Wispr Lightning: WS append send failed: %@", error.localizedDescription)
@@ -335,6 +347,7 @@ class TranscriptionClient {
                    let data = text.data(using: .utf8),
                    let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
 
+                    wLogVerbose("WS received: \(text.prefix(500))")
                     let status = json["status"] as? String
                     if status == "text" {
                         let body = json["body"] as? [String: Any] ?? [:]

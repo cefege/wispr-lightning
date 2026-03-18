@@ -140,6 +140,7 @@ class Session {
             self.refreshToken = newRefreshToken
             self.expiresAt = json["expires_at"] as? TimeInterval ?? 0
             self.save()
+            wLogVerbose("Token refresh response: \(String(data: data, encoding: .utf8)?.prefix(300) ?? "")")
             NSLog("Wispr Lightning: Token refreshed successfully")
             completion(true)
         }.resume()

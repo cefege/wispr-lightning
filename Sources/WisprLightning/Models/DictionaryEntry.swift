@@ -1,6 +1,6 @@
 import Foundation
 
-struct DictionaryEntry: Identifiable {
+struct DictionaryEntry: Identifiable, Hashable {
     let id: String
     let phrase: String
     let replacement: String?
@@ -10,4 +10,7 @@ struct DictionaryEntry: Identifiable {
     let frequencyUsed: Int
     let createdAt: Date
     let modifiedAt: Date
+
+    static func == (lhs: DictionaryEntry, rhs: DictionaryEntry) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }

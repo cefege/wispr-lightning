@@ -51,6 +51,9 @@ class AppSettings: Codable {
     // Sound Packs
     var selectedSoundPack: String? = nil
 
+    // Debug
+    var verboseLogging: Bool = false
+
     static let settingsURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/WisprLightning")

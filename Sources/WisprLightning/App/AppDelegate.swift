@@ -24,6 +24,13 @@ func wLog(_ message: String) {
     NSLog("Wispr Lightning: %@", message)
 }
 
+var isVerboseLoggingEnabled: Bool = false
+
+func wLogVerbose(_ message: String) {
+    guard isVerboseLoggingEnabled else { return }
+    wLog("[VERBOSE] \(message)")
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     var statusBarController: StatusBarController!
     private var session: Session!
@@ -55,6 +62,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var cachedOCRContext: [String] = []
     private var cachedAXContext: [String] = []
     private var tapDelayTimer: Timer?
+    private var processingTimeoutTimer: Timer?
     private var pendingPackets: [Data]?
     private var pendingAppInfo: [String: String]?
     private var pendingOcrContext: [String]?
@@ -92,6 +100,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         recordingOverlay = RecordingOverlay()
         recordingOverlay.prewarm()
         toastNotification = ToastNotification()
+
+        isVerboseLoggingEnabled = settings.verboseLogging
+
+        NotificationCenter.default.addObserver(forName: .settingsChanged, object: nil, queue: .main) { notification in
+            if let updated = notification.object as? AppSettings {
+                isVerboseLoggingEnabled = updated.verboseLogging
+            }
+        }
 
         let hasSession = session.load()
         if !hasSession {
@@ -215,6 +231,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         recordingTimer?.invalidate()
         recordingTimer = nil
         recordingStartTime = nil
+        hotkeyListener.resetState()
 
         _ = audioRecorder.stop() // discard packets
         transcriptionClient.cancelPrewarmedConnection()
@@ -365,6 +382,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Show processing indicator while transcribing
         recordingOverlay.showProcessing()
+
+        processingTimeoutTimer?.invalidate()
+        processingTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            wLog("Processing timeout — force-hiding overlay")
+            self.clearPendingTranscription()
+            self.recordingOverlay.showError(message: "Processing timed out")
+            self.resumeMusicInBackground()
+        }
 
         // Store data available synchronously; drain context queues off main
         pendingPackets = packets
@@ -524,6 +550,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func clearPendingTranscription() {
+        processingTimeoutTimer?.invalidate()
+        processingTimeoutTimer = nil
         pendingPackets = nil
         pendingAppInfo = nil
         pendingOcrContext = nil
@@ -650,16 +678,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.polishService.polish(text: text, instructions: activeInstructions) { [weak self] result in
                 guard let self = self else { return }
-                if case .success(let polishResult) = result {
+                switch result {
+                case .success(let polishResult):
                     DispatchQueue.main.async {
                         self.textInjector.inject(text: polishResult.polishedText) { _ in
-                            DispatchQueue.main.async {
-                                self.recordingOverlay.hide()
-                            }
+                            DispatchQueue.main.async { self.recordingOverlay.hide() }
                         }
                         wLog("Auto-polish complete: \(polishResult.polishedText.count) chars")
                     }
                     self.polishStore.saveResult(polishResult)
+                case .failure(let error):
+                    wLog("Auto-polish failed: \(error.userMessage) — injecting original text")
+                    DispatchQueue.main.async {
+                        self.textInjector.inject(text: text) { _ in
+                            DispatchQueue.main.async { self.recordingOverlay.hide() }
+                        }
+                    }
                 }
             }
         }
