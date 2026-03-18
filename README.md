@@ -1,15 +1,35 @@
-# ⚡ Wispr Lightning
+# Wispr Lightning
 
-A lightweight macOS dictation app powered by [Wispr Flow](https://wispr.com)'s transcription API. Hold a hotkey, speak, release — your words appear wherever the cursor is.
+A lightweight native macOS dictation app powered by [Wispr Flow](https://wispr.com)'s transcription API. Hold a hotkey, speak, release — your words appear wherever the cursor is.
+
+Wispr Lightning is a ground-up rewrite of the Wispr Flow desktop client in native Swift. It uses the same transcription backend but replaces the Electron shell with a lean macOS-native app, eliminating the browser engine overhead entirely.
 
 ## Features
 
 - **Push-to-talk dictation** — hold a configurable hotkey to record, release to transcribe and inject text
 - **Context-aware formatting** — uses the active app and on-screen text (via OCR) to intelligently format transcriptions
-- **Processing indicator** — overlay transitions from "Recording…" → "Processing…" → success/error
-- **Music auto-pause** — pauses Apple Music/Spotify during recording, resumes after
+- **Auto-polish** — optionally rewrites transcriptions with a custom AI prompt before injecting
+- **Processing indicator** — overlay transitions from Recording → Processing → done
+- **Music auto-pause** — pauses Apple Music / Spotify during recording, resumes after
 - **Transcription history** — browse and search past dictations
-- **Menu bar app** — lives in the status bar with a lightning bolt icon
+- **Menu bar app** — lives in the status bar, zero UI clutter
+
+## Performance vs. Wispr Flow
+
+Measured on the same machine (macOS 15.3), both apps idle.
+
+| Metric | Wispr Lightning | Wispr Flow | Difference |
+|---|---|---|---|
+| **RAM (idle)** | 18 MB | ~560 MB | **31× less** |
+| **CPU (idle)** | ~0% | ~21% | |
+| **Processes** | 1 | 11 | **11× fewer** |
+| **App size** | 5.2 MB | 438 MB | **84× smaller** |
+
+Wispr Flow is built on Electron — it ships and runs a full Chromium browser engine to display its UI, spawning 11 OS processes at launch (4 renderers, GPU compositor, network service, audio helper, plugin helper, crash reporter, Swift helper, main shell). Together they consume ~560 MB of RAM while doing nothing.
+
+Wispr Lightning is a single native Swift process. The OS parks it at 0% CPU between interactions.
+
+**Real-world impact:** On a MacBook M1 Air with 8 GB of RAM, Wispr Flow's idle footprint is 7% of total system memory. Under a heavy workload — browser tabs, editor, Slack, Figma — available RAM shrinks fast and Wispr Flow consistently crashes. Wispr Lightning's 18 MB footprint is negligible under any workload.
 
 ## Requirements
 
@@ -23,7 +43,7 @@ A lightweight macOS dictation app powered by [Wispr Flow](https://wispr.com)'s t
 ./install.sh
 ```
 
-This builds a release binary, bundles it into `Wispr Lightning.app`, generates the app icon, and copies it to `/Applications`.
+Builds a release binary, bundles it into `Wispr Lightning.app`, and copies it to `/Applications`.
 
 ### Permissions
 
@@ -33,18 +53,17 @@ After first launch, grant these in **System Settings → Privacy & Security**:
 - **Input Monitoring** — for global hotkey capture
 - **Microphone** — prompted automatically on first recording
 
-## Build (dev)
+## Build
 
 ```bash
-swift build          # debug
+swift build             # debug
 swift build -c release  # release
-./build-app.sh       # builds .app bundle in current directory
 ```
 
 ## Usage
 
-1. Sign in with your Wispr account (menu bar → Open Wispr Lightning)
-2. Hold the hotkey (default: Right Option) and speak
+1. Sign in with your Wispr account via the menu bar
+2. Hold the hotkey (default: Left Control) and speak
 3. Release — text is transcribed and typed at your cursor
 
 ## License
