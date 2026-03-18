@@ -7,52 +7,71 @@ struct NotesView: View {
     @ObservedObject var vm: NotesViewModel
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if vm.notes.isEmpty && vm.searchQuery.isEmpty {
-                    VStack(spacing: Theme.Spacing.medium) {
-                        Image(systemName: "note.text")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.tertiary)
-                        Text("No notes yet")
-                            .font(.title3)
-                            .foregroundStyle(.secondary)
-                        Button("Create Note") { vm.createNote() }
-                            .controlSize(.large)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List(selection: $vm.selectedNoteId) {
-                        ForEach(vm.notes) { note in
-                            NoteRow(note: note)
-                                .tag(note.id)
-                                .contextMenu {
-                                    Button("Delete", role: .destructive) { vm.deleteNote(note) }
+        VStack(spacing: 0) {
+            // Toolbar row
+            HStack {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search notes…", text: $vm.searchQuery)
+                        .textFieldStyle(.plain)
+                        .onChange(of: vm.searchQuery) { _ in vm.refresh() }
+                }
+                .padding(6)
+                .background(Color(nsColor: .controlBackgroundColor))
+                .cornerRadius(6)
+
+                Button {
+                    vm.createNote()
+                } label: {
+                    Label("New Note", systemImage: "plus")
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.medium)
+            .padding(.vertical, Theme.Spacing.small)
+
+            if vm.notes.isEmpty && vm.searchQuery.isEmpty {
+                VStack(spacing: Theme.Spacing.medium) {
+                    Image(systemName: "note.text")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.tertiary)
+                    Text("No notes yet")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                    Button("Create Note") { vm.createNote() }
+                        .controlSize(.large)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if vm.notes.isEmpty {
+                VStack(spacing: Theme.Spacing.small) {
+                    Text("No results for \"\(vm.searchQuery)\"")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(selection: $vm.selectedNoteId) {
+                    ForEach(vm.notes) { note in
+                        NoteRow(note: note)
+                            .tag(note.id)
+                            .contextMenu {
+                                Button("Edit") {
+                                    vm.editingNote = note
                                 }
-                        }
-                    }
-                    .listStyle(.inset(alternatesRowBackgrounds: true))
-                }
-            }
-            .searchable(text: $vm.searchQuery, placement: .toolbar)
-            .onChange(of: vm.searchQuery) { _ in vm.refresh() }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        vm.createNote()
-                    } label: {
-                        Label("New Note", systemImage: "plus")
+                                Divider()
+                                Button("Delete", role: .destructive) { vm.deleteNote(note) }
+                            }
                     }
                 }
+                .listStyle(.inset(alternatesRowBackgrounds: true))
             }
-            .sheet(item: $vm.editingNote) { note in
-                NoteEditorSheet(vm: vm, note: note)
-            }
-            .onChange(of: vm.selectedNoteId) { newValue in
-                if let id = newValue, let note = vm.notes.first(where: { $0.id == id }) {
-                    vm.editingNote = note
-                    vm.selectedNoteId = nil
-                }
+        }
+        .sheet(item: $vm.editingNote) { note in
+            NoteEditorSheet(vm: vm, note: note)
+        }
+        .onChange(of: vm.selectedNoteId) { newValue in
+            if let id = newValue, let note = vm.notes.first(where: { $0.id == id }) {
+                vm.editingNote = note
+                vm.selectedNoteId = nil
             }
         }
     }

@@ -31,6 +31,9 @@ class RecordingOverlay {
             onRetryAction = nil
             onDismissAction = nil
             effectView?.layer?.backgroundColor = nil
+            dotView?.isHidden = false
+            spinner?.stopAnimation(nil)
+            spinner?.isHidden = true
             dotView?.layer?.backgroundColor = Theme.Colors.error.cgColor
             mainLabel?.stringValue = "Listening"
             currentPanelWidth = 0  // force resize to reposition after any state

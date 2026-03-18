@@ -148,37 +148,44 @@ struct AllSettingsView: View {
             }
             .navigationSplitViewColumnWidth(220)
         } detail: {
-            ScrollView {
-                VStack(alignment: .leading, spacing: Theme.Spacing.large) {
-                    switch selectedSection {
-                    case .general:
-                        AccountSection(isSignedIn: isSignedIn, displayName: displayName, email: email, avatarURL: avatarURL, session: session)
-                        Divider()
-                        ShortcutsDetail(vm: vm)
-                        Divider()
-                        MicrophoneDetail(vm: vm)
-                        Divider()
-                        LanguagesDetail(vm: vm)
-                    case .dictation:
-                        DictationDetail(vm: vm)
-                        Divider()
-                        PersonalizationDetail(vm: vm)
-                    case .polish:
-                        PolishDetail(vm: vm)
-                    case .history:
-                        HistoryView(vm: historyVM)
-                    case .dictionary:
-                        DictionaryView(vm: dictionaryVM)
-                    case .notes:
-                        NotesView(vm: notesVM)
-                    case .privacy:
-                        PrivacyDetail(vm: vm)
-                    case .system:
-                        SystemDetail(vm: vm)
+            Group {
+                switch selectedSection {
+                case .history:
+                    HistoryView(vm: historyVM)
+                case .dictionary:
+                    DictionaryView(vm: dictionaryVM)
+                case .notes:
+                    NotesView(vm: notesVM)
+                default:
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: Theme.Spacing.large) {
+                            switch selectedSection {
+                            case .general:
+                                AccountSection(isSignedIn: isSignedIn, displayName: displayName, email: email, avatarURL: avatarURL, session: session)
+                                Divider()
+                                ShortcutsDetail(vm: vm)
+                                Divider()
+                                MicrophoneDetail(vm: vm)
+                                Divider()
+                                LanguagesDetail(vm: vm)
+                            case .dictation:
+                                DictationDetail(vm: vm)
+                                Divider()
+                                PersonalizationDetail(vm: vm)
+                            case .polish:
+                                PolishDetail(vm: vm)
+                            case .privacy:
+                                PrivacyDetail(vm: vm)
+                            case .system:
+                                SystemDetail(vm: vm)
+                            default:
+                                EmptyView()
+                            }
+                        }
+                        .padding(28)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .padding(selectedSection == .history || selectedSection == .dictionary || selectedSection == .notes ? 0 : 28)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .navigationTitle(selectedSection.title)
         }
@@ -833,6 +840,14 @@ private struct SystemDetail: View {
 
                 Divider()
 
+                Toggle("Verbose logging", isOn: $vm.verboseLogging)
+                    .onChange(of: vm.verboseLogging) { _ in vm.saveSystemSettings() }
+                Text("Log full server requests and responses to ~/Library/Logs/WisprLightning.log")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
                 HStack {
                     Picker("Sound pack", selection: $vm.selectedSoundPack) {
                         Text("Default").tag(String?.none)
@@ -922,6 +937,9 @@ class SettingsViewModel: ObservableObject {
     // Sound Packs
     @Published var selectedSoundPack: String?
     @Published var availableSoundPacks: [String] = []
+
+    // Debug
+    @Published var verboseLogging: Bool
 
     private var shortcutMonitor: Any?
 
@@ -1091,6 +1109,9 @@ class SettingsViewModel: ObservableObject {
         // Sound Packs
         self.selectedSoundPack = settings.selectedSoundPack
 
+        // Debug
+        self.verboseLogging = settings.verboseLogging
+
         refreshMicDevices()
         availableSoundPacks = SoundManager.availablePacks()
     }
@@ -1189,6 +1210,7 @@ class SettingsViewModel: ObservableObject {
         settings.enableSounds = enableSounds
         settings.muteMusic = muteMusic
         settings.selectedSoundPack = selectedSoundPack
+        settings.verboseLogging = verboseLogging
         settings.save()
     }
 
