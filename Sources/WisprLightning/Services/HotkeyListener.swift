@@ -226,14 +226,20 @@ class HotkeyListener {
 
             guard hotkeySet.contains(keycode) else { return }
 
-            if isPressed && !keyDown {
-                keyDown = true
-                activeKeyCode = keycode
-                DispatchQueue.main.async { self.onPress() }
-            } else if !isPressed && keyDown && activeKeyCode == keycode {
-                keyDown = false
-                activeKeyCode = nil
-                DispatchQueue.main.async { self.onRelease() }
+            if isPressed {
+                DispatchQueue.main.async {
+                    guard !self.keyDown else { return }
+                    self.keyDown = true
+                    self.activeKeyCode = keycode
+                    self.onPress()
+                }
+            } else {
+                DispatchQueue.main.async {
+                    guard self.keyDown, self.activeKeyCode == keycode else { return }
+                    self.keyDown = false
+                    self.activeKeyCode = nil
+                    self.onRelease()
+                }
             }
         } else if type == .keyDown {
             let keycode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
@@ -248,18 +254,25 @@ class HotkeyListener {
             guard hotkeySet.contains(keycode) else { return }
             guard !isModifierKeycode(keycode) else { return }
 
-            if !keyDown {
-                keyDown = true
-                activeKeyCode = keycode
-                DispatchQueue.main.async { self.onPress() }
+            DispatchQueue.main.async {
+                guard !self.keyDown else { return }
+                self.keyDown = true
+                self.activeKeyCode = keycode
+                self.onPress()
             }
         } else if type == .keyUp {
             let keycode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
-            if keyDown && activeKeyCode == keycode {
-                keyDown = false
-                activeKeyCode = nil
-                DispatchQueue.main.async { self.onRelease() }
+            DispatchQueue.main.async {
+                guard self.keyDown, self.activeKeyCode == keycode else { return }
+                self.keyDown = false
+                self.activeKeyCode = nil
+                self.onRelease()
             }
         }
+    }
+
+    func resetState() {
+        keyDown = false
+        activeKeyCode = nil
     }
 }
