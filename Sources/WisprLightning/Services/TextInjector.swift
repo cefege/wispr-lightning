@@ -22,6 +22,33 @@ class TextInjector {
         return text
     }
 
+    /// Snapshot the current pasteboard. Must be called from a non-main thread.
+    static func saveClipboard() -> [[(NSPasteboard.PasteboardType, Data)]] {
+        var saved: [[(NSPasteboard.PasteboardType, Data)]] = []
+        DispatchQueue.main.sync {
+            for item in NSPasteboard.general.pasteboardItems ?? [] {
+                var pairs: [(NSPasteboard.PasteboardType, Data)] = []
+                for type in item.types {
+                    if let data = item.data(forType: type) { pairs.append((type, data)) }
+                }
+                if !pairs.isEmpty { saved.append(pairs) }
+            }
+        }
+        return saved
+    }
+
+    /// Restore a previously saved pasteboard snapshot. Must be called on the main thread.
+    static func restoreClipboard(_ items: [[(NSPasteboard.PasteboardType, Data)]]) {
+        guard !items.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        for itemData in items {
+            let newItem = NSPasteboardItem()
+            for (type, data) in itemData { newItem.setData(data, forType: type) }
+            pasteboard.writeObjects([newItem])
+        }
+    }
+
     /// Read the focused text field's current value via Accessibility API.
     /// Returns the text as a single-element array, or empty array if unavailable.
     static func readFocusedElementText() -> [String] {
@@ -55,24 +82,9 @@ class TextInjector {
     }
 
     private func pasteViaClipboard(text: String, completion: @escaping (_ pasteSucceeded: Bool) -> Void) {
-        // Pasteboard operations must happen on main thread
-        var savedItems: [[(NSPasteboard.PasteboardType, Data)]] = []
+        let savedItems = Self.saveClipboard()
         DispatchQueue.main.sync {
             let pasteboard = NSPasteboard.general
-            // Snapshot all pasteboard items with all their types
-            if let items = pasteboard.pasteboardItems {
-                for item in items {
-                    var typeDataPairs: [(NSPasteboard.PasteboardType, Data)] = []
-                    for type in item.types {
-                        if let data = item.data(forType: type) {
-                            typeDataPairs.append((type, data))
-                        }
-                    }
-                    if !typeDataPairs.isEmpty {
-                        savedItems.append(typeDataPairs)
-                    }
-                }
-            }
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
         }
@@ -101,19 +113,10 @@ class TextInjector {
         let pasteOK = verifyPaste(expected: text)
 
         // Restore old clipboard after paste is consumed
-        let saved = savedItems
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            if !saved.isEmpty {
-                let pasteboard = NSPasteboard.general
-                pasteboard.clearContents()
-                for itemData in saved {
-                    let newItem = NSPasteboardItem()
-                    for (type, data) in itemData {
-                        newItem.setData(data, forType: type)
-                    }
-                    pasteboard.writeObjects([newItem])
-                }
-                NSLog("Wispr Lightning: Clipboard restored (%d items)", saved.count)
+            Self.restoreClipboard(savedItems)
+            if !savedItems.isEmpty {
+                NSLog("Wispr Lightning: Clipboard restored (%d items)", savedItems.count)
             }
         }
 

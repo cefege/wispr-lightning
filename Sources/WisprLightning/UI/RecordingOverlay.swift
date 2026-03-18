@@ -13,6 +13,13 @@ class RecordingOverlay {
     private var dismissButton: NSButton?
     private var onRetryAction: (() -> Void)?
     private var onDismissAction: (() -> Void)?
+    private var currentPanelWidth: CGFloat = 120
+
+    /// Call at app launch to build the panel before the first keypress.
+    func prewarm() {
+        guard panel == nil else { return }
+        buildPanel()
+    }
 
     func show() {
         if panel != nil {
@@ -24,17 +31,23 @@ class RecordingOverlay {
             onRetryAction = nil
             onDismissAction = nil
             effectView?.layer?.backgroundColor = nil
-            if let mainLabel = mainLabel {
-                mainLabel.stringValue = "Recording…"
-            }
-            resizePanel(width: 130)
+            dotView?.layer?.backgroundColor = Theme.Colors.error.cgColor
+            mainLabel?.stringValue = "Listening"
+            currentPanelWidth = 0  // force resize to reposition after any state
+            resizePanel(width: 120)
             panel?.orderFront(nil)
             startPulsing()
             return
         }
+        buildPanel()
+        repositionPanel()
+        panel?.orderFront(nil)
+        startPulsing()
+    }
 
+    private func buildPanel() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 130, height: 36),
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: 36),
             styleMask: [.nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -62,7 +75,6 @@ class RecordingOverlay {
         stack.spacing = Theme.Spacing.medium
         stack.edgeInsets = NSEdgeInsets(top: 0, left: Theme.Spacing.large, bottom: 0, right: Theme.Spacing.large)
 
-        // Red dot
         let dot = NSView()
         dot.wantsLayer = true
         dot.layer?.backgroundColor = Theme.Colors.error.cgColor
@@ -70,7 +82,6 @@ class RecordingOverlay {
         dot.setSize(width: 10, height: 10)
         self.dotView = dot
 
-        // Spinner (hidden by default, shown during processing)
         let spin = NSProgressIndicator()
         spin.style = .spinning
         spin.controlSize = .small
@@ -79,7 +90,7 @@ class RecordingOverlay {
         spin.setSize(width: 16, height: 16)
         self.spinner = spin
 
-        let label = NSTextField(labelWithString: "Recording…")
+        let label = NSTextField(labelWithString: "Listening")
         label.font = Theme.Fonts.body
         label.textColor = .labelColor
         self.mainLabel = label
@@ -90,7 +101,6 @@ class RecordingOverlay {
         tLabel.isHidden = true
         self.timeLabel = tLabel
 
-        // Retry button (hidden by default, shown in retryable error state)
         let retry = NSButton(title: "Retry", target: self, action: #selector(retryButtonClicked))
         retry.bezelStyle = .rounded
         retry.controlSize = .small
@@ -98,7 +108,6 @@ class RecordingOverlay {
         retry.isHidden = true
         self.retryButton = retry
 
-        // Dismiss button (hidden by default)
         let dismiss = NSButton(title: "✕", target: self, action: #selector(dismissButtonClicked))
         dismiss.bezelStyle = .inline
         dismiss.isBordered = false
@@ -117,9 +126,6 @@ class RecordingOverlay {
         stack.pinToSuperview()
 
         self.panel = panel
-        repositionPanel()
-        panel.orderFront(nil)
-        startPulsing()
     }
 
     func hide() {
@@ -129,11 +135,21 @@ class RecordingOverlay {
         spinner?.stopAnimation(nil)
         spinner?.isHidden = true
         dotView?.isHidden = false
+        dotView?.layer?.backgroundColor = Theme.Colors.error.cgColor
         retryButton?.isHidden = true
         dismissButton?.isHidden = true
         onRetryAction = nil
         onDismissAction = nil
         panel?.orderOut(nil)
+    }
+
+    func showLocked() {
+        warningState = 0
+        effectView?.layer?.backgroundColor = nil
+        dotView?.layer?.backgroundColor = NSColor.systemGreen.cgColor
+        mainLabel?.stringValue = "Recording"
+        resizePanel(width: 120)
+        panel?.orderFront(nil)
     }
 
     func showProcessing() {
@@ -144,7 +160,7 @@ class RecordingOverlay {
         dotView?.isHidden = true
         spinner?.isHidden = false
         spinner?.startAnimation(nil)
-        mainLabel?.stringValue = "Processing…"
+        mainLabel?.stringValue = "Processing"
         resizePanel(width: 145)
         panel?.orderFront(nil)
     }
@@ -240,7 +256,9 @@ class RecordingOverlay {
     }
 
     private func resizePanel(width: CGFloat) {
-        guard let panel = panel, let screen = NSScreen.main else { return }
+        guard currentPanelWidth != width,
+              let panel = panel, let screen = NSScreen.main else { return }
+        currentPanelWidth = width
         var frame = panel.frame
         frame.size.width = width
         let screenFrame = screen.visibleFrame

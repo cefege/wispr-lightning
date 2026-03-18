@@ -40,13 +40,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var notesStore: NotesStore!
     private var soundManager: SoundManager!
     private var musicController: MusicController!
-    private var isRecording = false
+    private enum RecordingState { case idle, listening, recording }
+    private var recordingState: RecordingState = .idle
+    private var lastPressTime: Date?
+    private static let lockDebounceInterval: TimeInterval = 0.5
+    private var isRecording: Bool { recordingState != .idle }
     private var recordingOverlay: RecordingOverlay!
     private var toastNotification: ToastNotification!
     private var recordingTimer: Timer?
     private var recordingStartTime: Date?
+    private var recordingMaxSec = 0
+    private var recordingWarnSec = 0
+    private var recordingFinalSec = 0
     private var cachedOCRContext: [String] = []
     private var cachedAXContext: [String] = []
+    private var tapDelayTimer: Timer?
     private var pendingPackets: [Data]?
     private var pendingAppInfo: [String: String]?
     private var pendingOcrContext: [String]?
@@ -82,6 +90,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         recordingOverlay = RecordingOverlay()
+        recordingOverlay.prewarm()
         toastNotification = ToastNotification()
 
         let hasSession = session.load()
@@ -93,9 +102,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusBarController.updateMenu()
 
-        // Auto-open main window on first launch if not signed in
+        // Auto-open settings on first launch if not signed in
         if !hasSession {
-            statusBarController.openMainWindow()
+            statusBarController.openSettings()
         }
 
         hotkeyListener = HotkeyListener(
@@ -183,6 +192,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let urlString = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let url = URL(string: urlString) else { return }
         NSLog("Wispr Lightning: Received URL callback: %@", urlString)
+        // Only handle auth callbacks; ignore other wispr-flow:// deep links
+        guard urlString.contains("auth/") else { return }
         AuthService.handleCallback(url: url, session: session) { success in
             DispatchQueue.main.async {
                 if success {
@@ -198,7 +209,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func onSystemSleep() {
         guard isRecording else { return }
         wLog("System going to sleep — aborting recording")
-        isRecording = false
+        recordingState = .idle
+        lastPressTime = nil
 
         recordingTimer?.invalidate()
         recordingTimer = nil
@@ -208,17 +220,46 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         transcriptionClient.cancelPrewarmedConnection()
         clearPendingTranscription()
 
-        DispatchQueue.main.async {
-            self.statusBarController.setRecording(false)
-            self.recordingOverlay.hide()
-        }
-
+        statusBarController.setRecording(false)
+        recordingOverlay.hide()
         resumeMusicInBackground()
     }
 
     private func onHotkeyPress() {
-        guard !isRecording else { return }
-        isRecording = true
+        switch recordingState {
+        case .idle:
+            // First press: start recording in "Listening" (push-to-talk) state
+            recordingState = .listening
+            lastPressTime = Date()
+            startRecordingSession()
+
+        case .listening:
+            // Second press: cancel any pending tap-delay stop
+            tapDelayTimer?.invalidate()
+            tapDelayTimer = nil
+            // If quick succession → lock into hands-free "Recording" mode
+            let elapsed = lastPressTime.map { Date().timeIntervalSince($0) } ?? 1.0
+            if elapsed < AppDelegate.lockDebounceInterval {
+                recordingState = .recording
+                lastPressTime = Date()
+                wLog("Recording locked — hands-free mode")
+                recordingOverlay.showLocked()
+            } else {
+                // Slow second press: treat as stop
+                stopRecordingSession()
+            }
+
+        case .recording:
+            // Third press: stop hands-free recording
+            stopRecordingSession()
+        }
+    }
+
+    private func startRecordingSession() {
+        pendingAppInfo = AppInfoDetector.getFrontmostAppInfo()
+        recordingMaxSec   = settings.creatorMode ? Constants.creatorMaxRecordingSeconds  : Constants.maxRecordingSeconds
+        recordingWarnSec  = settings.creatorMode ? Constants.creatorWarningSeconds        : Constants.warningSeconds
+        recordingFinalSec = settings.creatorMode ? Constants.creatorFinalWarningSeconds   : Constants.finalWarningSeconds
         soundManager.playStart()
         audioRecorder.start()
         recordingStartTime = Date()
@@ -253,14 +294,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             cachedOCRContext = []
         }
 
-        DispatchQueue.main.async {
-            self.statusBarController.setRecording(true)
-            self.recordingOverlay.show()
+        statusBarController.setRecording(true)
+        recordingOverlay.show()
 
-            // Start 1-second repeating timer for duration tracking
-            self.recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-                self?.onRecordingTimerTick()
-            }
+        // Start 1-second repeating timer for duration tracking
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.onRecordingTimerTick()
         }
         wLog("Recording started")
     }
@@ -268,26 +307,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func onRecordingTimerTick() {
         guard let startTime = recordingStartTime else { return }
         let elapsed = Int(Date().timeIntervalSince(startTime))
-
         recordingOverlay.updateElapsed(elapsed)
-
-        let maxSec = settings.creatorMode ? Constants.creatorMaxRecordingSeconds : Constants.maxRecordingSeconds
-        let warnSec = settings.creatorMode ? Constants.creatorWarningSeconds : Constants.warningSeconds
-        let finalSec = settings.creatorMode ? Constants.creatorFinalWarningSeconds : Constants.finalWarningSeconds
-
-        if elapsed >= maxSec {
-            wLog("Max recording duration reached (\(maxSec)s), auto-stopping")
-            onHotkeyRelease()
-        } else if elapsed >= finalSec {
+        if elapsed >= recordingMaxSec {
+            wLog("Max recording duration reached (\(recordingMaxSec)s), auto-stopping")
+            stopRecordingSession()
+        } else if elapsed >= recordingFinalSec {
             recordingOverlay.showFinalWarning()
-        } else if elapsed >= warnSec {
+        } else if elapsed >= recordingWarnSec {
             recordingOverlay.showWarning()
         }
     }
 
     private func onHotkeyRelease() {
+        // In locked (hands-free) mode, key release does nothing — third press stops recording
+        guard recordingState == .listening else { return }
+
+        let heldDuration = lastPressTime.map { Date().timeIntervalSince($0) } ?? 1.0
+        if heldDuration >= AppDelegate.lockDebounceInterval {
+            // Long hold (PTT): stop immediately
+            stopRecordingSession()
+        } else {
+            // Quick tap: wait for potential second press before stopping.
+            // Fire at exactly lockDebounceInterval from the first press.
+            let remaining = AppDelegate.lockDebounceInterval - heldDuration
+            tapDelayTimer?.invalidate()
+            tapDelayTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in
+                guard let self = self, self.recordingState == .listening else { return }
+                self.stopRecordingSession()
+            }
+        }
+    }
+
+    private func stopRecordingSession() {
         guard isRecording else { return }
-        isRecording = false
+        recordingState = .idle
+        lastPressTime = nil
+
+        tapDelayTimer?.invalidate()
+        tapDelayTimer = nil
 
         // Stop recording timer
         recordingTimer?.invalidate()
@@ -296,43 +353,38 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let packets = audioRecorder.stop()
         soundManager.playStop()
-        DispatchQueue.main.async {
-            self.statusBarController.setRecording(false)
-        }
+        statusBarController.setRecording(false)
 
         guard packets.count >= 5 else {
             wLog("Too short (\(packets.count) packets), ignoring")
             transcriptionClient.cancelPrewarmedConnection()
-            DispatchQueue.main.async { self.recordingOverlay.hide() }
+            recordingOverlay.hide()
             musicController.resumeMusic()
             return
         }
 
         // Show processing indicator while transcribing
-        DispatchQueue.main.async { self.recordingOverlay.showProcessing() }
+        recordingOverlay.showProcessing()
 
-        let appInfo = AppInfoDetector.getFrontmostAppInfo()
-        let ocrContext = ocrQueue.sync {
-            let ctx = cachedOCRContext
-            cachedOCRContext = []
-            return ctx
-        }
-        let axContext = axQueue.sync {
-            let ctx = cachedAXContext
-            cachedAXContext = []
-            return ctx
-        }
-        wLog("Recording stopped — \(packets.count) packets (\(String(format: "%.1f", Double(packets.count) * 0.04))s), transcribing with \(ocrContext.count) OCR lines...")
-
-        // Store pending data for retry support
+        // Store data available synchronously; drain context queues off main
         pendingPackets = packets
-        pendingAppInfo = appInfo
-        pendingOcrContext = ocrContext
-        pendingAxContext = axContext
         currentRetryAttempt = 0
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.attemptTranscription()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, count = packets.count] in
+            guard let self = self else { return }
+            // Drain OCR/AX queues here — avoids blocking main thread
+            self.pendingOcrContext = self.ocrQueue.sync {
+                let ctx = self.cachedOCRContext
+                self.cachedOCRContext = []
+                return ctx
+            }
+            self.pendingAxContext = self.axQueue.sync {
+                let ctx = self.cachedAXContext
+                self.cachedAXContext = []
+                return ctx
+            }
+            wLog("Recording stopped — \(count) packets (\(String(format: "%.1f", Double(count) * 0.04))s), transcribing with \(self.pendingOcrContext?.count ?? 0) OCR lines...")
+            self.attemptTranscription()
         }
     }
 
@@ -371,9 +423,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                         wLog("Injecting: \(String(displayText.prefix(80)))")
 
-                        self.textInjector.inject(text: displayText) { _ in
-                            DispatchQueue.main.async {
-                                self.recordingOverlay.hide()
+                        let activeInstructions = self.settings.activePolishInstructions
+                        if self.settings.autoPolish && self.settings.polishEnabled
+                            && !activeInstructions.isEmpty {
+                            // Auto-polish will inject the final text — skip raw injection
+                            // Keep overlay in Processing state while polish runs
+                        } else {
+                            self.textInjector.inject(text: displayText) { _ in
+                                DispatchQueue.main.async { self.recordingOverlay.hide() }
                             }
                         }
 
@@ -481,27 +538,56 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func onPolishHotkeyPress() {
         guard settings.polishEnabled else { return }
 
-        guard let selectedText = TextInjector.readSelectedText() else {
-            wLog("Polish: no text selected")
-            DispatchQueue.main.async {
-                self.recordingOverlay.showError(message: "Select text to polish")
-            }
-            return
-        }
-
         let activeInstructions = settings.activePolishInstructions
         guard !activeInstructions.isEmpty else {
             wLog("Polish: no instructions enabled")
             return
         }
 
-        wLog("Polish: processing \(selectedText.count) chars with \(activeInstructions.count) instructions")
-        DispatchQueue.main.async { self.recordingOverlay.showProcessing() }
-
         let appInfo = AppInfoDetector.getFrontmostAppInfo()
 
+        // Show the pill and play start sound immediately
+        soundManager.playStart()
+        recordingOverlay.show()
+        recordingOverlay.showProcessing()
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.polishService.polish(text: selectedText, instructions: activeInstructions) { [weak self] result in
+            guard let self = self else { return }
+
+            // Save original clipboard before touching it, so we can restore after polish
+            let originalClipboard = TextInjector.saveClipboard()
+
+            // Simulate Cmd+C to copy whatever is selected in the focused app.
+            // More reliable than AX kAXSelectedTextAttribute, works across all apps.
+            let source = CGEventSource(stateID: .hidSystemState)
+            if let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: true),
+               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 8, keyDown: false) {
+                keyDown.flags = .maskCommand
+                keyUp.flags = .maskCommand
+                keyDown.post(tap: .cghidEventTap)
+                keyUp.post(tap: .cghidEventTap)
+            }
+
+            // Give the target app time to process the copy
+            Thread.sleep(forTimeInterval: 0.15)
+
+            var selectedText: String?
+            DispatchQueue.main.sync {
+                selectedText = NSPasteboard.general.string(forType: .string)
+            }
+
+            guard let text = selectedText, !text.isEmpty else {
+                wLog("Polish: no text selected")
+                DispatchQueue.main.async {
+                    TextInjector.restoreClipboard(originalClipboard)
+                    self.recordingOverlay.showError(message: "Select text to polish")
+                }
+                return
+            }
+
+            wLog("Polish: processing \(text.count) chars with \(activeInstructions.count) instructions")
+
+            self.polishService.polish(text: text, instructions: activeInstructions) { [weak self] result in
                 guard let self = self else { return }
 
                 DispatchQueue.main.async {
@@ -510,7 +596,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         wLog("Polish complete: \(polishResult.polishedText.count) chars in \(String(format: "%.1f", polishResult.processingTime))s")
 
                         self.textInjector.inject(text: polishResult.polishedText) { _ in
-                            DispatchQueue.main.async {
+                            // Restore the original clipboard (before our Cmd+C), after TextInjector's own restore
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                TextInjector.restoreClipboard(originalClipboard)
+                                wLog("Polish: clipboard restored")
+                                self.soundManager.playStop()
                                 self.recordingOverlay.hide()
                             }
                         }
@@ -519,6 +609,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
                     case .failure(let error):
                         wLog("Polish failed: \(error.userMessage)")
+                        TextInjector.restoreClipboard(originalClipboard)
                         self.recordingOverlay.showError(message: error.userMessage)
                     }
                 }
@@ -561,7 +652,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self = self else { return }
                 if case .success(let polishResult) = result {
                     DispatchQueue.main.async {
-                        self.textInjector.inject(text: polishResult.polishedText) { _ in }
+                        self.textInjector.inject(text: polishResult.polishedText) { _ in
+                            DispatchQueue.main.async {
+                                self.recordingOverlay.hide()
+                            }
+                        }
                         wLog("Auto-polish complete: \(polishResult.polishedText.count) chars")
                     }
                     self.polishStore.saveResult(polishResult)

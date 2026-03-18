@@ -7,7 +7,6 @@ class StatusBarController {
     private let historyStore: HistoryStore
     private let dictionaryStore: DictionaryStore
     private let notesStore: NotesStore
-    private var mainWindow: MainWindow?
     private var settingsWindowController: SettingsWindowController?
     private var lastTranscription: String?
 
@@ -20,7 +19,7 @@ class StatusBarController {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Wispr Lightning")
+            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Wispr Lightning")
             button.image?.isTemplate = true
         }
 
@@ -51,10 +50,10 @@ class StatusBarController {
     func setRecording(_ recording: Bool) {
         if let button = statusItem.button {
             if recording {
-                button.image = NSImage(systemSymbolName: "bolt.horizontal.fill", accessibilityDescription: "Recording")
+                button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Recording")
                 button.image?.isTemplate = true
             } else {
-                button.image = NSImage(systemSymbolName: "bolt.fill", accessibilityDescription: "Wispr Lightning")
+                button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Wispr Lightning")
                 button.image?.isTemplate = true
             }
         }
@@ -62,22 +61,6 @@ class StatusBarController {
 
     private func buildMenu() {
         let menu = NSMenu()
-
-        // Status line with hotkey hint
-        let hotkeyLabel = settings.hotkeyLabel
-        let statusText: String
-        if session.isValid {
-            statusText = "⚡ Ready — hold \(hotkeyLabel) to dictate"
-        } else {
-            statusText = "⚠️ Not signed in"
-        }
-        let statusItem = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
-        statusItem.isEnabled = false
-        let statusFont = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-        statusItem.attributedTitle = NSAttributedString(string: statusText, attributes: [.font: statusFont])
-        menu.addItem(statusItem)
-
-        menu.addItem(NSMenuItem.separator())
 
         // Last transcription preview
         if let text = lastTranscription, !text.isEmpty {
@@ -101,13 +84,7 @@ class StatusBarController {
 
         menu.addItem(NSMenuItem.separator())
 
-        let openItem = NSMenuItem(title: "Open Wispr Lightning...", action: #selector(openMainWindow), keyEquivalent: "")
-        openItem.target = self
-        menu.addItem(openItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(openSettingsWindow), keyEquivalent: ",")
+        let settingsItem = NSMenuItem(title: "Settings", action: #selector(openSettingsWindow), keyEquivalent: ",")
         settingsItem.keyEquivalentModifierMask = .command
         settingsItem.target = self
         menu.addItem(settingsItem)
@@ -122,20 +99,13 @@ class StatusBarController {
 
     func openSettings() {
         if settingsWindowController == nil {
-            settingsWindowController = SettingsWindowController(settings: settings, session: session)
+            settingsWindowController = SettingsWindowController(settings: settings, session: session, historyStore: historyStore, dictionaryStore: dictionaryStore, notesStore: notesStore)
         }
         settingsWindowController?.showWindow()
     }
 
     @objc private func openSettingsWindow() {
         openSettings()
-    }
-
-    @objc func openMainWindow() {
-        if mainWindow == nil {
-            mainWindow = MainWindow(session: session, settings: settings, historyStore: historyStore, dictionaryStore: dictionaryStore, notesStore: notesStore)
-        }
-        mainWindow?.showWindow()
     }
 
     @objc private func copyLastTranscription() {

@@ -29,6 +29,7 @@
             <string>com.wisprlightning.app</string>
             <key>CFBundleURLSchemes</key>
             <array>
+                <string>wispr-flow</string>
                 <string>wisprlightning</string>
             </array>
         </dict>

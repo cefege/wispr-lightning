@@ -8,7 +8,7 @@ let package = Package(
         .executableTarget(
             name: "WisprLightning",
             path: "Sources/WisprLightning",
-            resources: [.copy("../../Resources/Info.plist"), .copy("../../Resources/Sounds"), .copy("../../Resources/AppIcon.icns")],
+            resources: [.copy("../../Resources/Info.plist"), .copy("../../Resources/Sounds"), .copy("../../Resources/AppIcon.icns"), .copy("../../Resources/WisprFlowIcon.png")],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
                 .linkedFramework("AVFoundation"),

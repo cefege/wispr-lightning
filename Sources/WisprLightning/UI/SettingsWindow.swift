@@ -1,10 +1,22 @@
 import AppKit
 import SwiftUI
 
+private extension View {
+    @ViewBuilder func removeSidebarToggleIfAvailable() -> some View {
+        if #available(macOS 14.0, *) {
+            self.toolbar(removing: .sidebarToggle)
+        } else {
+            self
+        }
+    }
+}
+
 // MARK: - Settings Section Enum
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, dictation, polish, privacy, system
+    case general, dictation, polish
+    case history, dictionary, notes
+    case privacy, system
 
     var id: String { rawValue }
 
@@ -13,6 +25,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .general: return "General"
         case .dictation: return "Dictation"
         case .polish: return "Polish"
+        case .history: return "History"
+        case .dictionary: return "Dictionary"
+        case .notes: return "Notes"
         case .privacy: return "Privacy"
         case .system: return "System"
         }
@@ -20,38 +35,124 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .general: return "gearshape"
+        case .general: return "gearshape.fill"
         case .dictation: return "mic.fill"
         case .polish: return "sparkles"
-        case .privacy: return "lock.shield"
+        case .history: return "clock.fill"
+        case .dictionary: return "character.book.closed.fill"
+        case .notes: return "note.text"
+        case .privacy: return "hand.raised.fill"
         case .system: return "desktopcomputer"
         }
+    }
+
+    var iconGradient: LinearGradient {
+        switch self {
+        case .general, .system:    return Self.gradGray
+        case .dictation, .privacy: return Self.gradBlue
+        case .polish:              return Self.gradPurple
+        case .history:             return Self.gradOrange
+        case .dictionary:          return Self.gradGreen
+        case .notes:               return Self.gradYellow
+        }
+    }
+
+    private static func grad(_ t: Color, _ b: Color) -> LinearGradient {
+        LinearGradient(colors: [t, b], startPoint: .top, endPoint: .bottom)
+    }
+    private static let gradGray   = grad(Color(red:0.64,green:0.64,blue:0.70), Color(red:0.48,green:0.48,blue:0.55))
+    private static let gradBlue   = grad(Color(red:0.30,green:0.57,blue:1.00), Color(red:0.14,green:0.38,blue:0.96))
+    private static let gradPurple = grad(Color(red:0.72,green:0.38,blue:1.00), Color(red:0.55,green:0.22,blue:0.94))
+    private static let gradOrange = grad(Color(red:1.00,green:0.68,blue:0.22), Color(red:0.98,green:0.50,blue:0.02))
+    private static let gradGreen  = grad(Color(red:0.34,green:0.82,blue:0.44), Color(red:0.20,green:0.70,blue:0.30))
+    private static let gradYellow = grad(Color(red:1.00,green:0.84,blue:0.18), Color(red:0.98,green:0.70,blue:0.04))
+}
+
+// Colored icon tile matching macOS System Settings style
+private struct SectionIcon: View {
+    let section: SettingsSection
+    var body: some View {
+        Image(systemName: section.icon)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 28, height: 28)
+            .background(section.iconGradient, in: RoundedRectangle(cornerRadius: 7))
     }
 }
 
 // MARK: - All Settings View (sidebar + detail)
 
 struct AllSettingsView: View {
+    private static let sidebarIcon: NSImage? = {
+        guard let path = Bundle.main.path(forResource: "WisprFlowIcon", ofType: "png") else { return nil }
+        return NSImage(contentsOfFile: path)
+    }()
+
     @ObservedObject var vm: SettingsViewModel
     let session: Session
+    @StateObject private var historyVM: HistoryViewModel
+    @StateObject private var dictionaryVM: DictionaryViewModel
+    @StateObject private var notesVM: NotesViewModel
     @State private var isSignedIn = false
     @State private var email = ""
+    @State private var displayName = ""
+    @State private var avatarURL: String? = nil
     @State private var selectedSection: SettingsSection = .general
+
+    init(vm: SettingsViewModel, session: Session, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore) {
+        self.vm = vm
+        self.session = session
+        self._historyVM = StateObject(wrappedValue: HistoryViewModel(historyStore: historyStore))
+        self._dictionaryVM = StateObject(wrappedValue: DictionaryViewModel(dictionaryStore: dictionaryStore))
+        self._notesVM = StateObject(wrappedValue: NotesViewModel(notesStore: notesStore))
+    }
+
+    private static let settingsGroup: [SettingsSection] = [.general, .dictation, .polish]
+    private static let dataGroup: [SettingsSection] = [.history, .dictionary, .notes]
+    private static let systemGroup: [SettingsSection] = [.privacy, .system]
 
     var body: some View {
         NavigationSplitView {
-            List(SettingsSection.allCases, selection: $selectedSection) { section in
-                Label(section.title, systemImage: section.icon)
-                    .tag(section)
+            List(selection: $selectedSection) {
+                Section {
+                    ForEach(Self.settingsGroup) { section in
+                        sidebarRow(section)
+                    }
+                }
+                Section {
+                    ForEach(Self.dataGroup) { section in
+                        sidebarRow(section)
+                    }
+                }
+                Section {
+                    ForEach(Self.systemGroup) { section in
+                        sidebarRow(section)
+                    }
+                }
             }
             .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(180)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let nsImage = Self.sidebarIcon {
+                    HStack {
+                        Spacer()
+                        Image(nsImage: nsImage)
+                            .resizable()
+                            .frame(width: 64, height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        Spacer()
+                    }
+                    .padding(.top, 16)
+                    .padding(.bottom, 8)
+                    .background(.clear)
+                }
+            }
+            .navigationSplitViewColumnWidth(220)
         } detail: {
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.large) {
                     switch selectedSection {
                     case .general:
-                        AccountSection(isSignedIn: isSignedIn, email: email, session: session)
+                        AccountSection(isSignedIn: isSignedIn, displayName: displayName, email: email, avatarURL: avatarURL, session: session)
                         Divider()
                         ShortcutsDetail(vm: vm)
                         Divider()
@@ -64,25 +165,49 @@ struct AllSettingsView: View {
                         PersonalizationDetail(vm: vm)
                     case .polish:
                         PolishDetail(vm: vm)
+                    case .history:
+                        HistoryView(vm: historyVM)
+                    case .dictionary:
+                        DictionaryView(vm: dictionaryVM)
+                    case .notes:
+                        NotesView(vm: notesVM)
                     case .privacy:
                         PrivacyDetail(vm: vm)
                     case .system:
                         SystemDetail(vm: vm)
                     }
                 }
-                .padding(Theme.Spacing.xlarge)
+                .padding(selectedSection == .history || selectedSection == .dictionary || selectedSection == .notes ? 0 : 28)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .navigationTitle(selectedSection.title)
         }
+        .removeSidebarToggleIfAvailable()
         .onAppear { refreshAccount() }
         .onReceive(NotificationCenter.default.publisher(for: .sessionChanged)) { _ in
             refreshAccount()
         }
     }
 
+    @ViewBuilder
+    private func sidebarRow(_ section: SettingsSection) -> some View {
+        Label {
+            Text(section.title)
+        } icon: {
+            SectionIcon(section: section)
+        }
+        .tag(section)
+        .padding(.vertical, 1)
+    }
+
     private func refreshAccount() {
         isSignedIn = session.isValid
         email = session.userEmail ?? ""
+        avatarURL = session.avatarURL
+        let first = session.userFirstName ?? ""
+        let last = session.userLastName ?? ""
+        let full = [first, last].filter { !$0.isEmpty }.joined(separator: " ")
+        displayName = full.isEmpty ? email : full
     }
 }
 
@@ -93,10 +218,16 @@ class SettingsWindowController {
     private var settingsVM: SettingsViewModel?
     private let settings: AppSettings
     private let session: Session
+    private let historyStore: HistoryStore
+    private let dictionaryStore: DictionaryStore
+    private let notesStore: NotesStore
 
-    init(settings: AppSettings, session: Session) {
+    init(settings: AppSettings, session: Session, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore) {
         self.settings = settings
         self.session = session
+        self.historyStore = historyStore
+        self.dictionaryStore = dictionaryStore
+        self.notesStore = notesStore
     }
 
     func showWindow() {
@@ -109,19 +240,22 @@ class SettingsWindowController {
         let svm = SettingsViewModel(settings: settings)
         self.settingsVM = svm
 
-        let settingsView = AllSettingsView(vm: svm, session: session)
+        let settingsView = AllSettingsView(vm: svm, session: session, historyStore: historyStore, dictionaryStore: dictionaryStore, notesStore: notesStore)
         let hostingView = NSHostingView(rootView: settingsView)
 
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 680, height: 520),
-            styleMask: [.titled, .closable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 580),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        w.title = "Settings"
+        w.title = "Wispr Lightning Settings"
+        w.titlebarAppearsTransparent = false
+        w.toolbarStyle = .unified
+        w.titleVisibility = .visible
         w.center()
         w.isReleasedWhenClosed = false
-        w.minSize = NSSize(width: 600, height: 400)
+        w.minSize = NSSize(width: 680, height: 460)
         w.contentView = hostingView
         w.setFrameAutosaveName("SettingsWindow")
 
@@ -135,7 +269,9 @@ class SettingsWindowController {
 
 private struct AccountSection: View {
     let isSignedIn: Bool
+    let displayName: String
     let email: String
+    let avatarURL: String?
     let session: Session
 
     var body: some View {
@@ -146,11 +282,31 @@ private struct AccountSection: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
                 if isSignedIn {
                     HStack(spacing: Theme.Spacing.medium) {
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                        Text(email)
-                            .font(.body)
+                        Group {
+                            if let urlString = avatarURL, let url = URL(string: urlString) {
+                                AsyncImage(url: url) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Image(systemName: "person.crop.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(width: 32, height: 32)
+                                .clipShape(Circle())
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            if !displayName.isEmpty && displayName != email {
+                                Text(displayName)
+                                    .font(.body.weight(.medium))
+                            }
+                            Text(email)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         Spacer()
                         Button("Sign Out") {
                             session.clear()

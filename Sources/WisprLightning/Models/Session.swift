@@ -7,6 +7,7 @@ class Session {
     var userEmail: String?
     var userFirstName: String?
     var userLastName: String?
+    var avatarURL: String?
     var expiresAt: TimeInterval = 0
     let sessionId: String = UUID().uuidString
 
@@ -69,19 +70,46 @@ class Session {
             userId = user["id"] as? String
             userEmail = user["email"] as? String
 
-            if let meta = user["user_metadata"] as? [String: Any],
-               let fullName = meta["full_name"] as? String {
+            if let meta = user["user_metadata"] as? [String: Any] {
+                avatarURL = meta["avatar_url"] as? String ?? meta["picture"] as? String
+                let fullName = meta["full_name"] as? String ?? meta["name"] as? String ?? ""
                 let parts = fullName.split(separator: " ", maxSplits: 1)
                 userFirstName = parts.first.map(String.init) ?? ""
                 userLastName = parts.count > 1 ? String(parts[1]) : ""
             }
         }
 
-        if accessToken != nil {
-            NSLog("Wispr Lightning: Session loaded from %@ (user: %@)", source, userEmail ?? "unknown")
-            return true
+        guard accessToken != nil else { return false }
+
+        // If avatar or name missing from saved file, enrich from JWT payload
+        if avatarURL == nil || userEmail == nil, let token = accessToken {
+            enrichFromJWT(token)
         }
-        return false
+
+        NSLog("Wispr Lightning: Session loaded from %@ (user: %@)", source, userEmail ?? "unknown")
+        return true
+    }
+
+    private func enrichFromJWT(_ token: String) {
+        let segments = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count >= 2 else { return }
+        var base64 = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        while base64.count % 4 != 0 { base64 += "=" }
+        guard let data = Data(base64Encoded: base64),
+              let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+
+        if userEmail == nil { userEmail = payload["email"] as? String }
+        if let meta = payload["user_metadata"] as? [String: Any] {
+            if avatarURL == nil { avatarURL = meta["avatar_url"] as? String ?? meta["picture"] as? String }
+            if (userFirstName == nil || userFirstName!.isEmpty),
+               let fullName = meta["full_name"] as? String ?? meta["name"] as? String {
+                let parts = fullName.split(separator: " ", maxSplits: 1)
+                userFirstName = parts.first.map(String.init) ?? ""
+                userLastName = parts.count > 1 ? String(parts[1]) : ""
+            }
+        }
     }
 
     func refresh(completion: @escaping (Bool) -> Void) {
@@ -118,6 +146,11 @@ class Session {
     }
 
     func save() {
+        var userMeta: [String: Any] = [
+            "full_name": "\(userFirstName ?? "") \(userLastName ?? "")"
+        ]
+        if let avatar = avatarURL { userMeta["avatar_url"] = avatar }
+
         let sessionData: [String: Any] = [
             "sb-dodjkfqhwrzqjwkfnthl-auth-token": [
                 "access_token": accessToken ?? "",
@@ -126,9 +159,7 @@ class Session {
                 "user": [
                     "id": userId ?? "",
                     "email": userEmail ?? "",
-                    "user_metadata": [
-                        "full_name": "\(userFirstName ?? "") \(userLastName ?? "")"
-                    ]
+                    "user_metadata": userMeta
                 ]
             ] as [String: Any]
         ]
