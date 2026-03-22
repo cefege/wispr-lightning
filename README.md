@@ -6,7 +6,7 @@ Wispr Lightning is a ground-up rewrite of the Wispr Flow desktop client in nativ
 
 ## Demo
 
-[![Wispr Lightning demo](https://cdn.loom.com/sessions/thumbnails/e2c4c33d832441fb9ee2383b0305fe54-with-play.gif)](https://www.loom.com/share/e2c4c33d832441fb9ee2383b0305fe54)
+[![Wispr Lightning demo](https://cdn.loom.com/sessions/thumbnails/e2c4c33d832441fb9ee2383b0305fe54-00001.gif)](https://www.loom.com/share/e2c4c33d832441fb9ee2383b0305fe54)
 
 ## Performance vs. Wispr Flow
 
