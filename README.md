@@ -4,15 +4,9 @@ A lightweight native macOS dictation app powered by [Wispr Flow](https://wispr.c
 
 Wispr Lightning is a ground-up rewrite of the Wispr Flow desktop client in native Swift. It uses the same transcription backend but replaces the Electron shell with a lean macOS-native app, eliminating the browser engine overhead entirely.
 
-## Features
+## Demo
 
-- **Push-to-talk dictation** — hold a configurable hotkey to record, release to transcribe and inject text
-- **Context-aware formatting** — uses the active app and on-screen text (via OCR) to intelligently format transcriptions
-- **Auto-polish** — optionally rewrites transcriptions with a custom AI prompt before injecting
-- **Processing indicator** — overlay transitions from Recording → Processing → done
-- **Music auto-pause** — pauses Apple Music / Spotify during recording, resumes after
-- **Transcription history** — browse and search past dictations
-- **Menu bar app** — lives in the status bar, zero UI clutter
+> 📹 _Video coming soon — hold hotkey, speak, text appears._
 
 ## Performance vs. Wispr Flow
 
@@ -29,7 +23,17 @@ Wispr Flow is built on Electron — it ships and runs a full Chromium browser en
 
 Wispr Lightning is a single native Swift process. The OS parks it at 0% CPU between interactions.
 
-**Real-world impact:** On a MacBook M1 Air with 8 GB of RAM, Wispr Flow's idle footprint is 7% of total system memory. Under a heavy workload — browser tabs, editor, Slack, Figma — available RAM shrinks fast and Wispr Flow consistently crashes. Wispr Lightning's 18 MB footprint is negligible under any workload.
+**Real-world impact:** On a MacBook M1 Air with 8 GB of RAM, Wispr Flow's idle footprint is 7% of total system memory. Under a real dev workload — Chrome with 20 tabs, VS Code, Claude Code, Slack — available RAM shrinks fast and Wispr Flow consistently crashes. Wispr Lightning's 18 MB footprint is negligible under any workload.
+
+## Features
+
+- **Push-to-talk dictation** — hold a configurable hotkey to record, release to transcribe and inject text
+- **Context-aware formatting** — uses the active app and on-screen text (via OCR) to intelligently format transcriptions
+- **Auto-polish** — optionally rewrites transcriptions with a custom AI prompt before injecting
+- **Processing indicator** — overlay transitions from Recording → Processing → done
+- **Music auto-pause** — pauses Apple Music / Spotify during recording, resumes after
+- **Transcription history** — browse and search past dictations
+- **Menu bar app** — lives in the status bar, zero UI clutter
 
 ## Requirements
 
