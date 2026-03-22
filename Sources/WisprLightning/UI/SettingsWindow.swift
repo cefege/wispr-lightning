@@ -11,6 +11,37 @@ private extension View {
     }
 }
 
+// MARK: - Settings Toggle Row
+
+private struct SettingsToggleRow: View {
+    let title: String
+    let description: String?
+    @Binding var isOn: Bool
+
+    init(_ title: String, description: String? = nil, isOn: Binding<Bool>) {
+        self.title = title
+        self.description = description
+        self._isOn = isOn
+    }
+
+    var body: some View {
+        Toggle(isOn: $isOn) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let desc = description {
+                    Text(desc)
+                        .font(.subheadline)
+                        .fontWeight(.regular)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .toggleStyle(.switch)
+        .controlSize(.small)
+    }
+}
+
 // MARK: - Settings Section Enum
 
 enum SettingsSection: String, CaseIterable, Identifiable {
@@ -443,15 +474,14 @@ private struct LanguagesDetail: View {
         GroupBox {
             VStack(alignment: .leading, spacing: Theme.Spacing.small) {
                 // Auto-detect toggle
-                Toggle("Auto-detect", isOn: Binding(
-                    get: { vm.isAutoDetect },
-                    set: { _ in vm.toggleLanguage(SettingsViewModel.autoDetectCode) }
-                ))
+                SettingsToggleRow("Auto-detect",
+                    description: "Automatically detect the spoken language",
+                    isOn: Binding(
+                        get: { vm.isAutoDetect },
+                        set: { _ in vm.toggleLanguage(SettingsViewModel.autoDetectCode) }
+                    ))
                 .fontWeight(.medium)
-                Text("Automatically detect the spoken language")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.bottom, Theme.Spacing.small)
+                .padding(.bottom, Theme.Spacing.small)
 
                 Divider()
                     .padding(.vertical, Theme.Spacing.small)
@@ -492,10 +522,15 @@ private struct LanguagesDetail: View {
                         ScrollView {
                             VStack(alignment: .leading, spacing: 0) {
                                 ForEach(filteredLanguages, id: \.code) { lang in
-                                    Toggle("\(lang.flag) \(lang.name)", isOn: Binding(
+                                    Toggle(isOn: Binding(
                                         get: { vm.selectedLanguages.contains(lang.code) },
                                         set: { _ in vm.toggleLanguage(lang.code) }
-                                    ))
+                                    )) {
+                                        Text("\(lang.flag) \(lang.name)")
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    .toggleStyle(.switch)
+                                    .controlSize(.small)
                                     .font(.body)
                                     .padding(.horizontal, 8)
                                     .padding(.vertical, 5)
@@ -590,11 +625,10 @@ private struct DictationDetail: View {
 
         GroupBox {
             VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
-                Toggle("AI Formatting", isOn: $vm.aiFormatting)
+                SettingsToggleRow("AI Formatting",
+                    description: "Apply AI formatting to clean up transcriptions",
+                    isOn: $vm.aiFormatting)
                     .onChange(of: vm.aiFormatting) { _ in vm.saveDictationSettings() }
-                Text("Apply AI formatting to clean up transcriptions")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
                 Picker("Cleanup Level", selection: $vm.autoCleanupLevel) {
                     ForEach(SettingsViewModel.cleanupLevels, id: \.value) { level in
@@ -607,31 +641,27 @@ private struct DictationDetail: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                Toggle("Voice Commands", isOn: $vm.commandModeEnabled)
+                SettingsToggleRow("Voice Commands",
+                    description: "Interpret phrases like \"new line\" as commands",
+                    isOn: $vm.commandModeEnabled)
                     .onChange(of: vm.commandModeEnabled) { _ in vm.saveDictationSettings() }
-                Text("Interpret phrases like \"new line\" as commands")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
-                Toggle("Auto-detect hyperlinks", isOn: $vm.hyperlinkOn)
+                SettingsToggleRow("Auto-detect hyperlinks",
+                    description: "Convert spoken URLs to clickable hyperlinks",
+                    isOn: $vm.hyperlinkOn)
                     .onChange(of: vm.hyperlinkOn) { _ in vm.saveDictationSettings() }
-                Text("Convert spoken URLs to clickable hyperlinks")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
-                Toggle("Auto-learn words", isOn: $vm.autoLearnWords)
+                SettingsToggleRow("Auto-learn words",
+                    description: "Automatically learn new vocabulary from dictations",
+                    isOn: $vm.autoLearnWords)
                     .onChange(of: vm.autoLearnWords) { _ in vm.saveDictationSettings() }
-                Text("Automatically learn new vocabulary from dictations")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
                 Divider()
 
-                Toggle("Email signature", isOn: $vm.emailAutoSignature)
+                SettingsToggleRow("Email signature",
+                    description: "Append a signature when dictating in email apps",
+                    isOn: $vm.emailAutoSignature)
                     .onChange(of: vm.emailAutoSignature) { _ in vm.saveDictationSettings() }
-                Text("Append a signature when dictating in email apps")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
                 if vm.emailAutoSignature {
                     Picker("Signature", selection: $vm.emailSignatureOption) {
@@ -644,11 +674,10 @@ private struct DictationDetail: View {
 
                 Divider()
 
-                Toggle("Creator mode", isOn: $vm.creatorMode)
+                SettingsToggleRow("Creator mode",
+                    description: "Extended recording for long-form content (up to 10 min)",
+                    isOn: $vm.creatorMode)
                     .onChange(of: vm.creatorMode) { _ in vm.saveDictationSettings() }
-                Text("Extended recording for long-form content (up to 10 min)")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
             }
             .padding(Theme.Spacing.medium)
         }
@@ -666,11 +695,10 @@ private struct PolishDetail: View {
 
         GroupBox {
             VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
-                Toggle("Enable Polish", isOn: $vm.polishEnabled)
+                SettingsToggleRow("Enable Polish",
+                    description: "Refine selected text with AI",
+                    isOn: $vm.polishEnabled)
                     .onChange(of: vm.polishEnabled) { _ in vm.savePolishSettings() }
-                Text("Refine selected text with AI")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
                 if vm.polishEnabled {
                     VStack(alignment: .leading, spacing: Theme.Spacing.small) {
@@ -708,22 +736,26 @@ private struct PolishDetail: View {
                         .foregroundStyle(.secondary)
 
                     ForEach(Array(vm.polishInstructions.keys.sorted()), id: \.self) { key in
-                        Toggle(key, isOn: Binding(
+                        Toggle(isOn: Binding(
                             get: { vm.polishInstructions[key] ?? false },
                             set: { newValue in
                                 vm.polishInstructions[key] = newValue
                                 vm.savePolishSettings()
                             }
-                        ))
+                        )) {
+                            Text(key)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
                     }
 
                     Divider()
 
-                    Toggle("Auto-polish after dictation", isOn: $vm.autoPolish)
+                    SettingsToggleRow("Auto-polish after dictation",
+                        description: "Automatically polish text after each dictation",
+                        isOn: $vm.autoPolish)
                         .onChange(of: vm.autoPolish) { _ in vm.savePolishSettings() }
-                    Text("Automatically polish text after each dictation")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
                 }
             }
             .padding(Theme.Spacing.medium)
@@ -750,11 +782,10 @@ private struct PersonalizationDetail: View {
 
         GroupBox {
             VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
-                Toggle("Style detection", isOn: $vm.styleDetectionEnabled)
+                SettingsToggleRow("Style detection",
+                    description: "Automatically adjust tone based on context",
+                    isOn: $vm.styleDetectionEnabled)
                     .onChange(of: vm.styleDetectionEnabled) { _ in vm.savePersonalizationSettings() }
-                Text("Automatically adjust tone based on context")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
                 if vm.styleDetectionEnabled {
                     ForEach(Self.contexts, id: \.key) { ctx in
@@ -789,23 +820,20 @@ private struct PrivacyDetail: View {
 
         GroupBox {
             VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
-                Toggle("Screen context (OCR)", isOn: $vm.useScreenContext)
+                SettingsToggleRow("Screen context (OCR)",
+                    description: "Capture screen text for context-aware formatting",
+                    isOn: $vm.useScreenContext)
                     .onChange(of: vm.useScreenContext) { _ in vm.savePrivacySettings() }
-                Text("Capture screen text for context-aware formatting")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
-                Toggle("Accessibility context", isOn: $vm.useAccessibilityContext)
+                SettingsToggleRow("Accessibility context",
+                    description: "Use accessibility APIs for better transcription context",
+                    isOn: $vm.useAccessibilityContext)
                     .onChange(of: vm.useAccessibilityContext) { _ in vm.savePrivacySettings() }
-                Text("Use accessibility APIs for better transcription context")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
-                Toggle("Share anonymous usage data", isOn: $vm.shareUsageData)
+                SettingsToggleRow("Share anonymous usage data",
+                    description: "Help improve Wispr by sharing anonymous statistics",
+                    isOn: $vm.shareUsageData)
                     .onChange(of: vm.shareUsageData) { _ in vm.savePrivacySettings() }
-                Text("Help improve Wispr by sharing anonymous statistics")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
             }
             .padding(Theme.Spacing.medium)
         }
@@ -823,28 +851,27 @@ private struct SystemDetail: View {
 
         GroupBox {
             VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
-                Toggle("Launch at login", isOn: $vm.launchAtLogin)
+                SettingsToggleRow("Launch at login", isOn: $vm.launchAtLogin)
                     .onChange(of: vm.launchAtLogin) { _ in vm.saveSystemSettings(); vm.updateLaunchAgent() }
 
-                Toggle("Show in Dock", isOn: $vm.showInDock)
+                SettingsToggleRow("Show in Dock", isOn: $vm.showInDock)
                     .onChange(of: vm.showInDock) { _ in
                         vm.saveSystemSettings()
                         NSApp.setActivationPolicy(vm.showInDock ? .regular : .accessory)
                     }
 
-                Toggle("Sound effects", isOn: $vm.enableSounds)
+                SettingsToggleRow("Sound effects", isOn: $vm.enableSounds)
                     .onChange(of: vm.enableSounds) { _ in vm.saveSystemSettings() }
 
-                Toggle("Mute music while dictating", isOn: $vm.muteMusic)
+                SettingsToggleRow("Mute music while dictating", isOn: $vm.muteMusic)
                     .onChange(of: vm.muteMusic) { _ in vm.saveSystemSettings() }
 
                 Divider()
 
-                Toggle("Verbose logging", isOn: $vm.verboseLogging)
+                SettingsToggleRow("Verbose logging",
+                    description: "Log full server requests and responses to ~/Library/Logs/WisprLightning.log",
+                    isOn: $vm.verboseLogging)
                     .onChange(of: vm.verboseLogging) { _ in vm.saveSystemSettings() }
-                Text("Log full server requests and responses to ~/Library/Logs/WisprLightning.log")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
 
                 Divider()
 
