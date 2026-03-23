@@ -7,6 +7,7 @@ class AudioRecorder {
     private var packets: [Data] = []
     private let lock = NSLock()
     private(set) var isRecording = false
+    private var isPrewarmed = false
     private var cachedConverter: AVAudioConverter?
     private var cachedDeviceID: AudioDeviceID?
     private var cachedDeviceUID: String?
@@ -16,9 +17,56 @@ class AudioRecorder {
         self.audioEngine = AVAudioEngine()
     }
 
+    func prewarm() {
+        guard !isPrewarmed, !isRecording else { return }
+        if let deviceUID = settings.micDeviceUID {
+            if deviceUID == cachedDeviceUID, let cachedID = cachedDeviceID {
+                setInputDeviceDirect(deviceID: cachedID)
+            } else {
+                setInputDevice(uid: deviceUID)
+            }
+        }
+        let inputNode = audioEngine.inputNode
+        let hwFormat = inputNode.inputFormat(forBus: 0)
+        guard let targetFormat = AVAudioFormat(commonFormat: .pcmFormatInt16,
+                                               sampleRate: Double(Constants.sampleRate),
+                                               channels: 1, interleaved: true) else { return }
+        if let c = cachedConverter, c.inputFormat == hwFormat, c.outputFormat == targetFormat {
+            // reuse existing converter
+        } else {
+            cachedConverter = AVAudioConverter(from: hwFormat, to: targetFormat)
+        }
+        let bufferSize = AVAudioFrameCount(Constants.chunkSamples)
+        inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: hwFormat) { [weak self] buffer, _ in
+            guard let self = self, self.isRecording else { return }
+            self.processBuffer(buffer, from: hwFormat, to: targetFormat)
+        }
+        do {
+            try audioEngine.start()
+            isPrewarmed = true
+            NSLog("Wispr Lightning: Microphone pre-warmed (input: %@)", settings.micDeviceName ?? "system default")
+        } catch {
+            NSLog("Wispr Lightning: Failed to pre-warm microphone: %@", error.localizedDescription)
+            inputNode.removeTap(onBus: 0)
+        }
+    }
+
+    func deactivate() {
+        guard isPrewarmed, !isRecording else { return }
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
+        isPrewarmed = false
+        NSLog("Wispr Lightning: Microphone deactivated")
+    }
+
     func start() {
         packets = []
         isRecording = true
+
+        if isPrewarmed {
+            NSLog("Wispr Lightning: Recording started (prewarmed mic)")
+            return
+        }
 
         let engine = audioEngine
 
@@ -71,8 +119,6 @@ class AudioRecorder {
 
     func stop() -> [Data] {
         isRecording = false
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
 
         lock.lock()
         let result = packets
@@ -80,6 +126,15 @@ class AudioRecorder {
 
         NSLog("Wispr Lightning: Recording stopped — %d packets (%.1fs)",
               result.count, Double(result.count) * Double(Constants.chunkDurationMs) / 1000.0)
+
+        if settings.keepMicrophoneActive && isPrewarmed {
+            // Leave engine running — next recording will reuse it
+            return result
+        }
+
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
+        isPrewarmed = false
         return result
     }
 

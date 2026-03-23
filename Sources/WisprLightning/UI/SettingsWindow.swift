@@ -443,6 +443,13 @@ private struct MicrophoneDetail: View {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .controlSize(.small)
+
+                Divider()
+
+                SettingsToggleRow("Keep microphone active",
+                    description: "Eliminates startup delay — recommended when using iPhone as microphone",
+                    isOn: $vm.keepMicrophoneActive)
+                    .onChange(of: vm.keepMicrophoneActive) { _ in vm.saveMicSelection() }
             }
             .padding(Theme.Spacing.medium)
         }
@@ -927,6 +934,7 @@ class SettingsViewModel: ObservableObject {
     @Published var isCapturingShortcut = false
     @Published var hotkeyLabels: [String] = []
     @Published var selectedMicUID: String?
+    @Published var keepMicrophoneActive: Bool
     @Published var selectedLanguages: Set<String>
     @Published var launchAtLogin: Bool
     @Published var showInDock: Bool
@@ -1103,6 +1111,7 @@ class SettingsViewModel: ObservableObject {
     init(settings: AppSettings) {
         self.settings = settings
         self.selectedMicUID = settings.micDeviceUID
+        self.keepMicrophoneActive = settings.keepMicrophoneActive
         self.selectedLanguages = Set(settings.languages)
         self.launchAtLogin = settings.launchAtLogin
         self.showInDock = settings.showInDock
@@ -1155,6 +1164,7 @@ class SettingsViewModel: ObservableObject {
             settings.micDeviceUID = nil
             settings.micDeviceName = nil
         }
+        settings.keepMicrophoneActive = keepMicrophoneActive
         settings.save()
     }
 

@@ -117,7 +117,7 @@ class HotkeyListener {
 
         // Polish hotkey: modifier key used as standalone trigger
         if _polishKeyCodes.contains(keycode) && !hotkeySet.contains(keycode) {
-            if Self.isModifierDown(keycode: keycode, flags: event.modifierFlags) {
+            if Self.isModifierDown(keycode: keycode, flags: event.modifierFlags) && isCursorOnLocalDisplay() {
                 triggerPolish()
             }
             return
@@ -127,7 +127,7 @@ class HotkeyListener {
 
         let isPressed = Self.isModifierDown(keycode: keycode, flags: event.modifierFlags)
 
-        if isPressed && !keyDown {
+        if isPressed && !keyDown && isCursorOnLocalDisplay() {
             keyDown = true
             activeKeyCode = keycode
             onPress()
@@ -141,14 +141,14 @@ class HotkeyListener {
     private func handleKeyEvent(_ event: NSEvent) {
         // Polish hotkey: regular key (only fires when CGEventTap is unavailable)
         if event.type == .keyDown && _polishKeyCodes.contains(event.keyCode) && !isModifierKeycode(event.keyCode) {
-            triggerPolish()
+            if isCursorOnLocalDisplay() { triggerPolish() }
             return
         }
 
         guard hotkeySet.contains(event.keyCode) else { return }
         guard !isModifierKeycode(event.keyCode) else { return }
 
-        if event.type == .keyDown && !keyDown {
+        if event.type == .keyDown && !keyDown && isCursorOnLocalDisplay() {
             keyDown = true
             activeKeyCode = event.keyCode
             onPress()
@@ -220,7 +220,7 @@ class HotkeyListener {
 
             // Polish hotkey: modifier key used as standalone trigger
             if _polishKeyCodes.contains(keycode) && !hotkeySet.contains(keycode) {
-                if isPressed { triggerPolish() }
+                if isPressed && isCursorOnLocalDisplay() { triggerPolish() }
                 return
             }
 
@@ -229,6 +229,7 @@ class HotkeyListener {
             if isPressed {
                 DispatchQueue.main.async {
                     guard !self.keyDown else { return }
+                    guard self.isCursorOnLocalDisplay() else { return }
                     self.keyDown = true
                     self.activeKeyCode = keycode
                     self.onPress()
@@ -246,7 +247,7 @@ class HotkeyListener {
 
             // Polish hotkey: regular key
             if _polishKeyCodes.contains(keycode) && !isModifierKeycode(keycode) {
-                triggerPolish()
+                if isCursorOnLocalDisplay() { triggerPolish() }
                 return
             }
 
@@ -256,6 +257,7 @@ class HotkeyListener {
 
             DispatchQueue.main.async {
                 guard !self.keyDown else { return }
+                guard self.isCursorOnLocalDisplay() else { return }
                 self.keyDown = true
                 self.activeKeyCode = keycode
                 self.onPress()
@@ -274,5 +276,10 @@ class HotkeyListener {
     func resetState() {
         keyDown = false
         activeKeyCode = nil
+    }
+
+    private func isCursorOnLocalDisplay() -> Bool {
+        let mouseLocation = NSEvent.mouseLocation
+        return NSScreen.screens.contains { $0.frame.contains(mouseLocation) }
     }
 }

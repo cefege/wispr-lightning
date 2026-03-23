@@ -7,6 +7,7 @@ class AppSettings: Codable {
     var hotkeyLabels: [String] = ["Left Control"]
     var micDeviceUID: String? = nil       // nil = system default
     var micDeviceName: String? = nil
+    var keepMicrophoneActive: Bool = false
     var languages: [String] = ["en"]
     var launchAtLogin: Bool = false
     var showInDock: Bool = false

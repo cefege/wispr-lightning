@@ -103,9 +103,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         isVerboseLoggingEnabled = settings.verboseLogging
 
-        NotificationCenter.default.addObserver(forName: .settingsChanged, object: nil, queue: .main) { notification in
+        NotificationCenter.default.addObserver(forName: .settingsChanged, object: nil, queue: .main) { [weak self] notification in
             if let updated = notification.object as? AppSettings {
                 isVerboseLoggingEnabled = updated.verboseLogging
+            }
+            guard let self = self else { return }
+            // Re-evaluate mic prewarm on any settings change (device or toggle may have changed)
+            self.audioRecorder.deactivate()
+            if self.settings.keepMicrophoneActive {
+                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                    self?.audioRecorder.prewarm()
+                }
             }
         }
 
@@ -130,6 +138,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         hotkeyListener.onPolishPress = { [weak self] in self?.onPolishHotkeyPress() }
         hotkeyListener.start()
+
+        // Pre-warm microphone if enabled (eliminates iPhone Continuity Camera startup delay)
+        if settings.keepMicrophoneActive {
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                self?.audioRecorder.prewarm()
+            }
+        }
 
         // Seed dictionary defaults and pre-warm cache off main thread
         DispatchQueue.global(qos: .utility).async { [weak self] in
