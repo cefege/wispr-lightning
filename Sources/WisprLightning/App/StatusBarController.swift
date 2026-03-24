@@ -84,6 +84,30 @@ class StatusBarController {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Input Device submenu
+        let inputDeviceItem = NSMenuItem(title: "Input Device", action: nil, keyEquivalent: "")
+        let inputDeviceMenu = NSMenu()
+
+        let defaultItem = NSMenuItem(title: "System Default", action: #selector(selectMicDevice(_:)), keyEquivalent: "")
+        defaultItem.target = self
+        defaultItem.state = settings.micDeviceUID == nil ? .on : .off
+        inputDeviceMenu.addItem(defaultItem)
+
+        let devices = AudioRecorder.listInputDevices()
+        if !devices.isEmpty {
+            inputDeviceMenu.addItem(NSMenuItem.separator())
+            for device in devices {
+                let item = NSMenuItem(title: device.name, action: #selector(selectMicDevice(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = device.uid
+                item.state = settings.micDeviceUID == device.uid ? .on : .off
+                inputDeviceMenu.addItem(item)
+            }
+        }
+
+        inputDeviceItem.submenu = inputDeviceMenu
+        menu.addItem(inputDeviceItem)
+
         let settingsItem = NSMenuItem(title: "Settings", action: #selector(openSettingsWindow), keyEquivalent: ",")
         settingsItem.keyEquivalentModifierMask = .command
         settingsItem.target = self
@@ -106,6 +130,18 @@ class StatusBarController {
 
     @objc private func openSettingsWindow() {
         openSettings()
+    }
+
+    @objc private func selectMicDevice(_ sender: NSMenuItem) {
+        if let uid = sender.representedObject as? String {
+            settings.micDeviceUID = uid
+            settings.micDeviceName = sender.title
+        } else {
+            settings.micDeviceUID = nil
+            settings.micDeviceName = nil
+        }
+        settings.save()
+        buildMenu()
     }
 
     @objc private func copyLastTranscription() {

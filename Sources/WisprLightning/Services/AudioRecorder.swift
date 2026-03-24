@@ -64,8 +64,13 @@ class AudioRecorder {
         isRecording = true
 
         if isPrewarmed {
-            NSLog("Wispr Lightning: Recording started (prewarmed mic)")
-            return
+            if audioEngine.isRunning {
+                NSLog("Wispr Lightning: Recording started (prewarmed mic)")
+                return
+            }
+            // Engine stopped unexpectedly (e.g. audio device change) — reset and restart below
+            audioEngine.inputNode.removeTap(onBus: 0)
+            isPrewarmed = false
         }
 
         let engine = audioEngine
@@ -127,14 +132,8 @@ class AudioRecorder {
         NSLog("Wispr Lightning: Recording stopped — %d packets (%.1fs)",
               result.count, Double(result.count) * Double(Constants.chunkDurationMs) / 1000.0)
 
-        if settings.keepMicrophoneActive && isPrewarmed {
-            // Leave engine running — next recording will reuse it
-            return result
-        }
-
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
-        isPrewarmed = false
+        // Keep engine running — prevents CoreAudio reconfiguration that causes Bluetooth audio dropout
+        isPrewarmed = true
         return result
     }
 
