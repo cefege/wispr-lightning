@@ -3,7 +3,8 @@ import Foundation
 
 enum AuthService {
     static func signInWithBrowser() {
-        // Use wispr-flow:// scheme — this redirect URI is whitelisted in Supabase
+        // wispr-flow:// is shared with Wispr Flow; if Wispr Flow intercepts the callback,
+        // AppDelegate's file watcher will detect the session file change and migrate it.
         let redirectURI = "wispr-flow://auth/google/success"
         let encodedRedirect = redirectURI.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? redirectURI
         let authURL = "\(Constants.supabaseURL)/auth/v1/authorize?provider=google&redirect_to=\(encodedRedirect)"
@@ -42,6 +43,7 @@ enum AuthService {
 
         // Extract everything from the JWT payload — no extra network call needed
         if let payload = decodeJWTPayload(accessToken) {
+            session.userId = payload["sub"] as? String
             session.userEmail = payload["email"] as? String
             if let meta = payload["user_metadata"] as? [String: Any] {
                 session.avatarURL = meta["avatar_url"] as? String ?? meta["picture"] as? String

@@ -70,6 +70,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentRetryAttempt = 0
     private var isTranscribing = false
     private static let maxAutoRetries = 2
+    private var wisprFlowSessionWatcher: DispatchSourceFileSystemObject?
     private let ocrQueue = DispatchQueue(label: "com.wisprlightning.ocr", qos: .userInitiated)
     private let axQueue = DispatchQueue(label: "com.wisprlightning.ax", qos: .userInitiated)
 
@@ -117,12 +118,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
+        NotificationCenter.default.addObserver(forName: .audioDevicesChanged, object: nil, queue: .main) { [weak self] _ in
+            self?.statusBarController.updateMenu()
+        }
+
         let hasSession = session.load()
         if !hasSession {
-            NSLog("Wispr Lightning: No session found. Sign in via Settings or log in to Wispr Flow first.")
+            NSLog("Wispr Lightning: No session found — sign in via Settings")
         } else {
             NSLog("Wispr Lightning: Session loaded for %@", session.userEmail ?? "unknown")
         }
+
+        startWisprFlowSessionWatcher()
 
         statusBarController.updateMenu()
 
@@ -398,14 +405,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Show processing indicator while transcribing
         recordingOverlay.showProcessing()
 
-        processingTimeoutTimer?.invalidate()
-        processingTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            wLog("Processing timeout — force-hiding overlay")
-            self.clearPendingTranscription()
-            self.recordingOverlay.showError(message: "Processing timed out")
-            self.resumeMusicInBackground()
-        }
+        scheduleProcessingTimeout()
 
         // Store data available synchronously; drain context queues off main
         pendingPackets = packets
@@ -530,13 +530,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         )
                     }
                 } else {
-                    // Non-retryable error — clear state, show auto-dismiss error
-                    self.clearPendingTranscription()
+                    // Non-retryable error — still show persistent retry UI so audio is never lost
                     wLog("Transcription failed (non-retryable): \(error.userMessage)")
                     self.resumeMusicInBackground()
 
                     DispatchQueue.main.async {
-                        self.recordingOverlay.showError(message: error.userMessage)
+                        self.recordingOverlay.showRetryableError(
+                            message: error.userMessage,
+                            onRetry: { [weak self] in self?.retryTranscription() },
+                            onDismiss: { [weak self] in self?.dismissRetry() }
+                        )
                     }
                 }
             }
@@ -548,8 +551,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         recordingOverlay.showProcessing()
         // Pre-warm connection so TCP+TLS handshake starts immediately
         transcriptionClient.prewarmConnection()
+        scheduleProcessingTimeout()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.attemptTranscription()
+        }
+    }
+
+    private func scheduleProcessingTimeout() {
+        processingTimeoutTimer?.invalidate()
+        processingTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            wLog("Processing timeout — showing retry UI (packets preserved)")
+            self.processingTimeoutTimer = nil
+            self.isTranscribing = false
+            self.resumeMusicInBackground()
+            self.recordingOverlay.showRetryableError(
+                message: "Timed out",
+                onRetry: { [weak self] in self?.retryTranscription() },
+                onDismiss: { [weak self] in self?.dismissRetry() }
+            )
         }
     }
 
@@ -712,6 +732,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - Wispr Flow session watcher
+
+    /// Watch Wispr Flow's session directory so Lightning picks up sign-ins that land in Wispr Flow.
+    /// When the user clicks "Sign In with Google", both apps share the wispr-flow:// scheme —
+    /// whichever is foregrounded handles the callback. If Wispr Flow wins, it writes its session file
+    /// and this watcher immediately migrates it into Lightning's own session.
+    private func startWisprFlowSessionWatcher() {
+        let dirURL = Session.wisprFlowSessionURL.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: dirURL, withIntermediateDirectories: true)
+
+        let fd = open(dirURL.path, O_EVTONLY)
+        guard fd >= 0 else {
+            NSLog("Wispr Lightning: Could not watch Wispr Flow session directory")
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .rename],
+            queue: DispatchQueue.main
+        )
+        source.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            // Only migrate if we don't have a valid session of our own
+            guard !self.session.isValid else { return }
+            if self.session.load() {
+                NSLog("Wispr Lightning: Picked up session from Wispr Flow (%@)", self.session.userEmail ?? "unknown")
+                NotificationCenter.default.post(name: .sessionChanged, object: nil)
+                self.statusBarController.updateMenu()
+            }
+        }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        wisprFlowSessionWatcher = source
     }
 
     func applicationWillTerminate(_ notification: Notification) {

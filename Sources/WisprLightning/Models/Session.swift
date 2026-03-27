@@ -32,17 +32,23 @@ class Session {
     }()
 
     func load() -> Bool {
-        for path in [Self.liteSessionURL, Self.wisprFlowSessionURL] {
-            guard FileManager.default.fileExists(atPath: path.path),
-                  let data = try? Data(contentsOf: path),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                continue
-            }
-            if parseSession(json, source: path.path) {
-                return true
-            }
+        if loadFromURL(Self.liteSessionURL) { return true }
+        // One-time migration: if no Lightning session, try Wispr Flow and copy it over
+        if loadFromURL(Self.wisprFlowSessionURL) {
+            save()  // Write to Lightning's own file so future launches don't need Wispr Flow
+            NSLog("Wispr Lightning: Migrated session from Wispr Flow (%@)", userEmail ?? "unknown")
+            return true
         }
         return false
+    }
+
+    private func loadFromURL(_ url: URL) -> Bool {
+        guard FileManager.default.fileExists(atPath: url.path),
+              let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        return parseSession(json, source: url.path)
     }
 
     private func parseSession(_ data: [String: Any], source: String) -> Bool {
@@ -101,6 +107,10 @@ class Session {
               let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
 
         if userEmail == nil { userEmail = payload["email"] as? String }
+        // Use JWT exp as the authoritative expiry — callback URLs may omit expires_at
+        if let exp = payload["exp"] as? TimeInterval, exp > Date().timeIntervalSince1970 {
+            expiresAt = exp
+        }
         if let meta = payload["user_metadata"] as? [String: Any] {
             if avatarURL == nil { avatarURL = meta["avatar_url"] as? String ?? meta["picture"] as? String }
             if (userFirstName == nil || userFirstName!.isEmpty),
@@ -138,7 +148,12 @@ class Session {
             }
             self.accessToken = newAccessToken
             self.refreshToken = newRefreshToken
-            self.expiresAt = json["expires_at"] as? TimeInterval ?? 0
+            let absExpiry = json["expires_at"] as? TimeInterval ?? 0
+            let relExpiry = json["expires_in"] as? TimeInterval ?? 0
+            self.expiresAt = absExpiry > Date().timeIntervalSince1970
+                ? absExpiry
+                : (relExpiry > 0 ? Date().timeIntervalSince1970 + relExpiry : 0)
+            self.enrichFromJWT(newAccessToken)  // also sets expiresAt from JWT exp if still 0
             self.save()
             wLogVerbose("Token refresh response: \(String(data: data, encoding: .utf8)?.prefix(300) ?? "")")
             NSLog("Wispr Lightning: Token refreshed successfully")
