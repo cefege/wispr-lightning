@@ -70,6 +70,10 @@ swift build -c release  # release
 2. Hold the hotkey (default: Left Control) and speak
 3. Release — text is transcribed and typed at your cursor
 
+## Disclaimer
+
+This is an independent project. It is not affiliated with, endorsed by, or connected to [Wispr](https://wispr.com) in any way. "Wispr" and "Wispr Flow" are trademarks of their respective owners. A valid Wispr account and subscription are required to use this application.
+
 ## License
 
-Private — not for redistribution.
+Source-available — see [LICENSE](LICENSE). You may view and study the code for personal and educational purposes. Redistribution, commercial use, and derivative works are not permitted.
