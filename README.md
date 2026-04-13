@@ -86,11 +86,11 @@ swift build -c release  # release
 
 - macOS 13+
 - Swift 5.9+
-- A [Wispr](https://wispr.com) account (valid subscription required)
+- A [Wispr](https://wispr.com) account (works with the free tier)
 
 ## Disclaimer
 
-This is an independent project. It is not affiliated with, endorsed by, or connected to [Wispr](https://wispr.com) in any way. "Wispr" and "Wispr Flow" are trademarks of their respective owners.
+This is an independent project. It is not affiliated with, endorsed by, or connected to [Wispr](https://wispr.com) in any way. "Wispr" and "Wispr Flow" are trademarks of their respective owners. A Wispr account is required — the free tier works.
 
 ## License
 
