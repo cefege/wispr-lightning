@@ -1,14 +1,10 @@
 # Wispr Lightning
 
-A lightweight native macOS dictation app powered by [Wispr Flow](https://wispr.com)'s transcription API. Hold a hotkey, speak, release — your words appear wherever the cursor is.
+I use [Wispr Flow](https://wispr.com) for voice dictation every day. It's great software — but it runs on Electron, which means it ships a full Chromium browser to display a menu bar icon. On my MacBook Air with 8 GB of RAM, it would crash under real workloads (Chrome, VS Code, Claude Code, Slack all running). So I rewrote it from scratch in native Swift.
 
-Wispr Lightning is a ground-up rewrite of the Wispr Flow desktop client in native Swift. It uses the same transcription backend but replaces the Electron shell with a lean macOS-native app, eliminating the browser engine overhead entirely.
+Same transcription backend. Same features. **31× less RAM. 84× smaller binary. One process instead of eleven.**
 
-## Demo
-
-[![Wispr Lightning demo](demo_thumbnail.jpg)](https://www.loom.com/share/e2c4c33d832441fb9ee2383b0305fe54)
-
-## Performance vs. Wispr Flow
+## Performance
 
 Measured on the same machine (macOS 15.3), both apps idle.
 
@@ -19,27 +15,47 @@ Measured on the same machine (macOS 15.3), both apps idle.
 | **Processes** | 1 | 11 | **11× fewer** |
 | **App size** | 5.2 MB | 438 MB | **84× smaller** |
 
-Wispr Flow is built on Electron — it ships and runs a full Chromium browser engine to display its UI, spawning 11 OS processes at launch (4 renderers, GPU compositor, network service, audio helper, plugin helper, crash reporter, Swift helper, main shell). Together they consume ~560 MB of RAM while doing nothing.
+Wispr Flow spawns 11 OS processes at launch — 4 renderers, GPU compositor, network service, audio helper, plugin helper, crash reporter, Swift helper, main shell. Together they consume ~560 MB of RAM doing nothing.
 
-Wispr Lightning is a single native Swift process. The OS parks it at 0% CPU between interactions.
+Wispr Lightning is a single native process. The OS parks it at 0% CPU between interactions.
 
-**Real-world impact:** On a MacBook M1 Air with 8 GB of RAM, Wispr Flow's idle footprint is 7% of total system memory. Under a real dev workload — Chrome with 20 tabs, VS Code, Claude Code, Slack — available RAM shrinks fast and Wispr Flow consistently crashes. Wispr Lightning's 18 MB footprint is negligible under any workload.
+## Demo
+
+[![Wispr Lightning demo](demo_thumbnail.jpg)](https://www.loom.com/share/e2c4c33d832441fb9ee2383b0305fe54)
+
+## How it works
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Hotkey pressed                                     │
+│  ├─ Pause music (Apple Music / Spotify)             │
+│  ├─ Start AVAudioEngine recording                   │
+│  ├─ Show recording overlay                          │
+│  │                                                  │
+│  Hotkey released                                    │
+│  ├─ Capture active app context (bundle ID, window)  │
+│  ├─ OCR visible screen text for formatting context  │
+│  ├─ Stream audio → Wispr transcription API (WSS)    │
+│  ├─ [Optional] AI polish pass with custom prompt    │
+│  ├─ Inject text at cursor via Accessibility API     │
+│  ├─ Save to local history (SQLite)                  │
+│  └─ Resume music                                    │
+└─────────────────────────────────────────────────────┘
+```
+
+The core pipeline: record → transcribe → format → inject. Context-aware formatting reads the active app and on-screen text via OCR so dictated text matches the style of what you're writing in — code comments get formatted differently than emails.
+
+**~6,400 lines of Swift. No frameworks beyond Foundation and AppKit. One binary.**
 
 ## Features
 
 - **Push-to-talk dictation** — hold a configurable hotkey to record, release to transcribe and inject text
 - **Context-aware formatting** — uses the active app and on-screen text (via OCR) to intelligently format transcriptions
 - **Auto-polish** — optionally rewrites transcriptions with a custom AI prompt before injecting
-- **Processing indicator** — overlay transitions from Recording → Processing → done
+- **Processing indicator** — overlay transitions from Recording → Processing → Done
 - **Music auto-pause** — pauses Apple Music / Spotify during recording, resumes after
-- **Transcription history** — browse and search past dictations
+- **Transcription history** — browse and search past dictations in local SQLite
 - **Menu bar app** — lives in the status bar, zero UI clutter
-
-## Requirements
-
-- macOS 13+
-- Swift 5.9+
-- A [Wispr](https://wispr.com) account
 
 ## Install
 
@@ -64,15 +80,15 @@ swift build             # debug
 swift build -c release  # release
 ```
 
-## Usage
+## Requirements
 
-1. Sign in with your Wispr account via the menu bar
-2. Hold the hotkey (default: Left Control) and speak
-3. Release — text is transcribed and typed at your cursor
+- macOS 13+
+- Swift 5.9+
+- A [Wispr](https://wispr.com) account (valid subscription required)
 
 ## Disclaimer
 
-This is an independent project. It is not affiliated with, endorsed by, or connected to [Wispr](https://wispr.com) in any way. "Wispr" and "Wispr Flow" are trademarks of their respective owners. A valid Wispr account and subscription are required to use this application.
+This is an independent project. It is not affiliated with, endorsed by, or connected to [Wispr](https://wispr.com) in any way. "Wispr" and "Wispr Flow" are trademarks of their respective owners.
 
 ## License
 
