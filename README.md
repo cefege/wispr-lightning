@@ -1,6 +1,8 @@
 # Wispr Lightning
 
-I use [Wispr Flow](https://wispr.com) for voice dictation every day. It's great software — but it runs on Electron, which means it ships a full Chromium browser to display a menu bar icon. On my MacBook Air with 8 GB of RAM, it would crash under real workloads (Chrome, VS Code, Claude Code, Slack all running). So I rewrote it from scratch in native Swift.
+I use [Wispr Flow](https://wispr.com) for voice dictation every day. It's great software — but it runs on Electron, which means it ships a full Chromium browser to display a menu bar icon. On my MacBook Air with 8 GB of RAM, it would crash under real workloads (Chrome, VS Code, Claude Code, Slack all running).
+
+I ordered a new MacBook to fix the problem. Then I got annoyed that a menu bar app was the reason I needed new hardware. So while the MacBook was shipping, I rewrote Wispr Flow from scratch in native Swift. The rewrite was done before the laptop arrived.
 
 Same transcription backend. Same features. **31× less RAM. 84× smaller binary. One process instead of eleven.**
 
