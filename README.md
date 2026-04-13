@@ -4,7 +4,7 @@ I use [Wispr Flow](https://wispr.com) for voice dictation every day. It's great 
 
 I ordered a new MacBook to fix the problem. Then I got annoyed that a menu bar app was the reason I needed new hardware. So while the MacBook was shipping, I rewrote Wispr Flow from scratch in native Swift. The rewrite was done before the laptop arrived.
 
-Same transcription backend. Same features. **9× less RAM. 84× smaller binary. One process instead of ten.**
+Same transcription backend. Same features. **9× less RAM. 185× smaller binary. One process instead of ten.**
 
 ## Performance
 
@@ -15,7 +15,7 @@ Measured on MacBook M5 (16 GB RAM, macOS 15.3), both apps idle.
 | **RAM (idle)** | 59 MB | 546 MB | **9× less** |
 | **CPU (idle)** | ~0% | ~21% | |
 | **Processes** | 1 | 10 | **10× fewer** |
-| **App size** | 5.2 MB | 438 MB | **84× smaller** |
+| **App size** | 2.5 MB | 462 MB | **185× smaller** |
 
 Wispr Flow spawns 10 OS processes at launch — 4 renderers, GPU compositor, plugin helper, and multiple helper processes. Together they consume 546 MB of RAM doing nothing.
 
