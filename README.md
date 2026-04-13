@@ -21,6 +21,8 @@ Wispr Flow spawns 11 OS processes at launch — 4 renderers, GPU compositor, net
 
 Wispr Lightning is a single native process. The OS parks it at 0% CPU between interactions.
 
+On a MacBook M5 with 16 GB of RAM, Wispr Flow still consumes 546 MB across 10 processes. Wispr Lightning uses 59 MB in one.
+
 ## Demo
 
 [![Wispr Lightning demo](demo_thumbnail.jpg)](https://www.loom.com/share/e2c4c33d832441fb9ee2383b0305fe54)
