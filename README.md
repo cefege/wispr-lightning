@@ -4,24 +4,22 @@ I use [Wispr Flow](https://wispr.com) for voice dictation every day. It's great 
 
 I ordered a new MacBook to fix the problem. Then I got annoyed that a menu bar app was the reason I needed new hardware. So while the MacBook was shipping, I rewrote Wispr Flow from scratch in native Swift. The rewrite was done before the laptop arrived.
 
-Same transcription backend. Same features. **31× less RAM. 84× smaller binary. One process instead of eleven.**
+Same transcription backend. Same features. **9× less RAM. 84× smaller binary. One process instead of ten.**
 
 ## Performance
 
-Measured on the same machine (macOS 15.3), both apps idle.
+Measured on MacBook M5 (16 GB RAM, macOS 15.3), both apps idle.
 
 | Metric | Wispr Lightning | Wispr Flow | Difference |
 |---|---|---|---|
-| **RAM (idle)** | 18 MB | ~560 MB | **31× less** |
+| **RAM (idle)** | 59 MB | 546 MB | **9× less** |
 | **CPU (idle)** | ~0% | ~21% | |
-| **Processes** | 1 | 11 | **11× fewer** |
+| **Processes** | 1 | 10 | **10× fewer** |
 | **App size** | 5.2 MB | 438 MB | **84× smaller** |
 
-Wispr Flow spawns 11 OS processes at launch — 4 renderers, GPU compositor, network service, audio helper, plugin helper, crash reporter, Swift helper, main shell. Together they consume ~560 MB of RAM doing nothing.
+Wispr Flow spawns 10 OS processes at launch — 4 renderers, GPU compositor, plugin helper, and multiple helper processes. Together they consume 546 MB of RAM doing nothing.
 
 Wispr Lightning is a single native process. The OS parks it at 0% CPU between interactions.
-
-On a MacBook M5 with 16 GB of RAM, Wispr Flow still consumes 546 MB across 10 processes. Wispr Lightning uses 59 MB in one.
 
 ![Activity Monitor — Wispr Lightning vs Wispr Flow](wispr-lightning-vs-flow.png)
 
