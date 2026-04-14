@@ -1,5 +1,7 @@
 # Wispr Lightning
 
+> **[Download the latest release](https://github.com/cefege/wispr-lightning/releases/latest)** — grab `Wispr.Lightning.app.zip`, unzip, drag to `/Applications`, and launch. Grant Accessibility, Input Monitoring, and Microphone permissions when prompted. Requires macOS 13+ on Apple Silicon.
+
 I use [Wispr Flow](https://wispr.com) for voice dictation every day. It's great software — but it runs on Electron, which means it ships a full Chromium browser to display a menu bar icon. On my MacBook Air with 8 GB of RAM, it would crash under real workloads (Chrome, VS Code, Claude Code, Slack all running).
 
 I ordered a new MacBook to fix the problem. Then I got annoyed that a menu bar app was the reason I needed new hardware. So while the MacBook was shipping, I rewrote Wispr Flow from scratch in native Swift. The rewrite was done before the laptop arrived.
@@ -62,6 +64,12 @@ The core pipeline: record → transcribe → format → inject. Context-aware fo
 - **Menu bar app** — lives in the status bar, zero UI clutter
 
 ## Install
+
+**Option A — Download pre-built app (recommended):**
+
+Download `Wispr.Lightning.app.zip` from the [latest release](https://github.com/cefege/wispr-lightning/releases/latest), unzip, and drag to `/Applications`. If Gatekeeper blocks it: `xattr -cr "/Applications/Wispr Lightning.app"`.
+
+**Option B — Build from source:**
 
 ```bash
 ./install.sh
