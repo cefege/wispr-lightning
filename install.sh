@@ -21,6 +21,10 @@ cp "$SCRIPT_DIR/.build/release/WisprLightning" "$SCRIPT_DIR/$APP_BUNDLE/Contents
 # Copy Info.plist
 cp "$SCRIPT_DIR/Resources/Info.plist" "$SCRIPT_DIR/$APP_BUNDLE/Contents/Info.plist"
 
+# Copy bundle resources accessed via Bundle.main at runtime
+cp "$SCRIPT_DIR/Resources/WisprFlowIcon.png" "$SCRIPT_DIR/$APP_BUNDLE/Contents/Resources/WisprFlowIcon.png"
+cp -R "$SCRIPT_DIR/Resources/Sounds" "$SCRIPT_DIR/$APP_BUNDLE/Contents/Resources/Sounds"
+
 # Write PkgInfo
 echo -n "APPL????" > "$SCRIPT_DIR/$APP_BUNDLE/Contents/PkgInfo"
 

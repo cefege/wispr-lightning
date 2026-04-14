@@ -10,6 +10,9 @@ class StatusBarController {
     private var settingsWindowController: SettingsWindowController?
     private var lastTranscription: String?
 
+    /// Wired by AppDelegate to flip HotkeyListener's pause state.
+    var onTogglePause: (() -> Void)?
+
     init(session: Session, settings: AppSettings, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore) {
         self.session = session
         self.settings = settings
@@ -19,8 +22,7 @@ class StatusBarController {
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Wispr Lightning")
-            button.image?.isTemplate = true
+            button.image = Self.menuBarIcon(accessibilityDescription: "Wispr Lightning")
         }
 
         // Load last transcription from history
@@ -49,14 +51,29 @@ class StatusBarController {
 
     func setRecording(_ recording: Bool) {
         if let button = statusItem.button {
-            if recording {
-                button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Recording")
-                button.image?.isTemplate = true
-            } else {
-                button.image = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: "Wispr Lightning")
-                button.image?.isTemplate = true
-            }
+            button.image = Self.menuBarIcon(
+                accessibilityDescription: recording ? "Recording" : "Wispr Lightning"
+            )
         }
+    }
+
+    /// Cached menu-bar icon — decoded once at first access. Wispr Flow brand
+    /// PNG (not a template) when available, system mic symbol as fallback.
+    private static let cachedMenuBarIcon: NSImage? = {
+        if let path = Bundle.main.path(forResource: "WisprFlowIcon", ofType: "png"),
+           let img = NSImage(contentsOfFile: path) {
+            img.size = NSSize(width: 18, height: 18)
+            img.isTemplate = false
+            return img
+        }
+        let fallback = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: nil)
+        fallback?.isTemplate = true
+        return fallback
+    }()
+
+    private static func menuBarIcon(accessibilityDescription: String) -> NSImage? {
+        cachedMenuBarIcon?.accessibilityDescription = accessibilityDescription
+        return cachedMenuBarIcon
     }
 
     private func buildMenu() {
@@ -108,6 +125,14 @@ class StatusBarController {
         inputDeviceItem.submenu = inputDeviceMenu
         menu.addItem(inputDeviceItem)
 
+        // Pause hotkey toggle — escape hatch for Universal Control / remote desktop
+        // scenarios where the hotkey shouldn't fire on this Mac.
+        let pauseTitle = settings.hotkeyPaused ? "Resume hotkey" : "Pause hotkey"
+        let pauseItem = NSMenuItem(title: pauseTitle, action: #selector(togglePauseHotkey), keyEquivalent: "")
+        pauseItem.target = self
+        if settings.hotkeyPaused { pauseItem.state = .on }
+        menu.addItem(pauseItem)
+
         let settingsItem = NSMenuItem(title: "Settings", action: #selector(openSettingsWindow), keyEquivalent: ",")
         settingsItem.keyEquivalentModifierMask = .command
         settingsItem.target = self
@@ -141,6 +166,11 @@ class StatusBarController {
             settings.micDeviceName = nil
         }
         settings.save()
+        buildMenu()
+    }
+
+    @objc private func togglePauseHotkey() {
+        onTogglePause?()
         buildMenu()
     }
 

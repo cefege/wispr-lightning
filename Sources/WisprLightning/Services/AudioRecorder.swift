@@ -15,6 +15,68 @@ class AudioRecorder {
     init(settings: AppSettings) {
         self.settings = settings
         self.audioEngine = AVAudioEngine()
+        installDeviceChangeListener()
+    }
+
+    deinit {
+        removeDeviceChangeListener()
+    }
+
+    // MARK: - Device change notifications
+
+    private var deviceListListenerBlock: AudioObjectPropertyListenerBlock?
+    private var defaultInputListenerBlock: AudioObjectPropertyListenerBlock?
+
+    private static var deviceListAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDevices,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+
+    private static var defaultInputAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultInputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain
+    )
+
+    private func installDeviceChangeListener() {
+        // Distinct block instances: AudioObject*PropertyListenerBlock matches by
+        // block identity, so reusing a single block reference for two properties
+        // would give us only one registration and a leaked listener at remove time.
+        let postNotification: () -> Void = {
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .audioDevicesChanged, object: nil)
+            }
+        }
+        let listBlock: AudioObjectPropertyListenerBlock = { _, _ in postNotification() }
+        let defaultBlock: AudioObjectPropertyListenerBlock = { _, _ in postNotification() }
+        deviceListListenerBlock = listBlock
+        defaultInputListenerBlock = defaultBlock
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &Self.deviceListAddress, nil, listBlock
+        )
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &Self.defaultInputAddress, nil, defaultBlock
+        )
+    }
+
+    private func removeDeviceChangeListener() {
+        if let block = deviceListListenerBlock {
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &Self.deviceListAddress, nil, block
+            )
+            deviceListListenerBlock = nil
+        }
+        if let block = defaultInputListenerBlock {
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject),
+                &Self.defaultInputAddress, nil, block
+            )
+            defaultInputListenerBlock = nil
+        }
     }
 
     func prewarm() {

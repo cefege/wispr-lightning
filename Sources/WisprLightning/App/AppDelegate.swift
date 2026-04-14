@@ -51,6 +51,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingState: RecordingState = .idle
     private var lastPressTime: Date?
     private static let lockDebounceInterval: TimeInterval = 0.5
+    private static let trailingBufferInterval: TimeInterval = 0.5
     private var isRecording: Bool { recordingState != .idle }
     private var recordingOverlay: RecordingOverlay!
     private var toastNotification: ToastNotification!
@@ -145,6 +146,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         hotkeyListener.onPolishPress = { [weak self] in self?.onPolishHotkeyPress() }
         hotkeyListener.start()
+
+        statusBarController.onTogglePause = { [weak self] in
+            guard let self = self else { return }
+            self.hotkeyListener.setPaused(!self.hotkeyListener.isPaused)
+        }
 
         // Pre-warm microphone if enabled (eliminates iPhone Continuity Camera startup delay)
         if settings.keepMicrophoneActive {
@@ -363,8 +369,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let heldDuration = lastPressTime.map { Date().timeIntervalSince($0) } ?? 1.0
         if heldDuration >= AppDelegate.lockDebounceInterval {
-            // Long hold (PTT): stop immediately
-            stopRecordingSession()
+            // Long hold (PTT): stop after a short trailing buffer to capture tail-end of speech
+            tapDelayTimer?.invalidate()
+            tapDelayTimer = Timer.scheduledTimer(withTimeInterval: AppDelegate.trailingBufferInterval, repeats: false) { [weak self] _ in
+                guard let self = self, self.recordingState == .listening else { return }
+                self.stopRecordingSession()
+            }
         } else {
             // Quick tap: wait for potential second press before stopping.
             // Fire at exactly lockDebounceInterval from the first press.

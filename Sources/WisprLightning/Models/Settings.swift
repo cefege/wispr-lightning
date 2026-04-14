@@ -55,6 +55,9 @@ class AppSettings: Codable {
     // Debug
     var verboseLogging: Bool = false
 
+    // Hotkey
+    var hotkeyPaused: Bool = false
+
     static let settingsURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/WisprLightning")
@@ -90,4 +93,5 @@ extension Notification.Name {
     static let settingsChanged = Notification.Name("WisprLightningSettingsChanged")
     static let sessionChanged = Notification.Name("WisprSessionChanged")
     static let previewSoundPack = Notification.Name("WisprPreviewSoundPack")
+    static let audioDevicesChanged = Notification.Name("WisprAudioDevicesChanged")
 }
