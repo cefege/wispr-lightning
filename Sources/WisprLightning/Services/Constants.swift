@@ -10,12 +10,7 @@ enum Constants {
     static let chunkDurationMs = 40
     static let chunkSamples = sampleRate * chunkDurationMs / 1000  // 640
     static let clientVersion = "1.4.549"
-    static let maxRecordingSeconds = 300
-    static let warningSeconds = 240
-    static let finalWarningSeconds = 270
-
-    // Creator mode durations
-    static let creatorMaxRecordingSeconds = 600
-    static let creatorWarningSeconds = 540
-    static let creatorFinalWarningSeconds = 570
+    static let maxRecordingSeconds = 600
+    static let warningSeconds = 540
+    static let finalWarningSeconds = 570
 }

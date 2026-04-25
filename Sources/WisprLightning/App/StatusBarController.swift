@@ -9,6 +9,7 @@ class StatusBarController {
     private let notesStore: NotesStore
     private var settingsWindowController: SettingsWindowController?
     private var lastTranscription: String?
+    private var sessionObserver: NSObjectProtocol?
 
     /// Wired by AppDelegate to flip HotkeyListener's pause state.
     var onTogglePause: (() -> Void)?
@@ -32,11 +33,17 @@ class StatusBarController {
 
         buildMenu()
 
-        NotificationCenter.default.addObserver(
+        sessionObserver = NotificationCenter.default.addObserver(
             forName: .sessionChanged,
             object: nil, queue: .main
         ) { [weak self] _ in
             self?.buildMenu()
+        }
+    }
+
+    deinit {
+        if let observer = sessionObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 

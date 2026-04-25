@@ -64,13 +64,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var cachedAXContext: [String] = []
     private var tapDelayTimer: Timer?
     private var processingTimeoutTimer: Timer?
+    private var rearmTimer: Timer?
+    private var settingsObserver: NSObjectProtocol?
+    private var audioDevicesObserver: NSObjectProtocol?
+    private var cmdCommaMonitor: Any?
     private var pendingPackets: [Data]?
+    private var pendingAudioFileURL: URL?
     private var pendingAppInfo: [String: String]?
     private var pendingOcrContext: [String]?
     private var pendingAxContext: [String]?
     private var currentRetryAttempt = 0
     private var isTranscribing = false
     private static let maxAutoRetries = 2
+    private static let pendingAudioDir: URL = {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("WisprLightning/PendingAudio")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
     private var wisprFlowSessionWatcher: DispatchSourceFileSystemObject?
     private let ocrQueue = DispatchQueue(label: "com.wisprlightning.ocr", qos: .userInitiated)
     private let axQueue = DispatchQueue(label: "com.wisprlightning.ax", qos: .userInitiated)
@@ -105,22 +116,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         isVerboseLoggingEnabled = settings.verboseLogging
 
-        NotificationCenter.default.addObserver(forName: .settingsChanged, object: nil, queue: .main) { [weak self] notification in
+        settingsObserver = NotificationCenter.default.addObserver(forName: .settingsChanged, object: nil, queue: .main) { [weak self] notification in
             if let updated = notification.object as? AppSettings {
                 isVerboseLoggingEnabled = updated.verboseLogging
             }
             guard let self = self else { return }
-            // Re-evaluate mic prewarm on any settings change (device or toggle may have changed)
-            self.audioRecorder.deactivate()
-            if self.settings.keepMicrophoneActive {
-                DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                    self?.audioRecorder.prewarm()
-                }
-            }
+            self.rearmMicrophone()
         }
 
-        NotificationCenter.default.addObserver(forName: .audioDevicesChanged, object: nil, queue: .main) { [weak self] _ in
-            self?.statusBarController.updateMenu()
+        audioDevicesObserver = NotificationCenter.default.addObserver(forName: .audioDevicesChanged, object: nil, queue: .main) { [weak self] _ in
+            guard let self = self else { return }
+            self.statusBarController.updateMenu()
+
+            if self.isRecording {
+                if let targetUID = self.settings.micDeviceUID {
+                    let devices = AudioRecorder.listInputDevices()
+                    if !devices.contains(where: { $0.uid == targetUID }) {
+                        wLog("Target mic '\(self.settings.micDeviceName ?? targetUID)' disconnected during recording")
+                    }
+                }
+            } else {
+                self.rearmMicrophone()
+            }
         }
 
         let hasSession = session.load()
@@ -154,9 +171,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Pre-warm microphone if enabled (eliminates iPhone Continuity Camera startup delay)
         if settings.keepMicrophoneActive {
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                self?.audioRecorder.prewarm()
-            }
+            audioRecorder.prewarm()
         }
 
         // Seed dictionary defaults and pre-warm cache off main thread
@@ -199,7 +214,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.mainMenu = mainMenu
 
         // Local key event monitor for Cmd+, when in accessory/menu-bar-only mode
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        cmdCommaMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "," {
                 self?.statusBarController.openSettings()
                 return nil
@@ -218,6 +233,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         wLog("Ready — press \(settings.hotkeyLabel) to start dictating")
+
+        // Check for unsent recordings from a previous crash/failure
+        recoverPendingAudio()
 
         // Register for URL scheme callbacks
         NSAppleEventManager.shared().setEventHandler(
@@ -258,6 +276,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         recordingTimer?.invalidate()
         recordingTimer = nil
+        rearmTimer?.invalidate()
+        rearmTimer = nil
         recordingStartTime = nil
         hotkeyListener.resetState()
 
@@ -300,13 +320,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func rearmMicrophone() {
+        rearmTimer?.invalidate()
+        rearmTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            self.audioRecorder.deactivate()
+            if self.settings.keepMicrophoneActive {
+                self.audioRecorder.prewarm()
+            }
+        }
+    }
+
     private func startRecordingSession() {
         pendingAppInfo = AppInfoDetector.getFrontmostAppInfo()
-        recordingMaxSec   = settings.creatorMode ? Constants.creatorMaxRecordingSeconds  : Constants.maxRecordingSeconds
-        recordingWarnSec  = settings.creatorMode ? Constants.creatorWarningSeconds        : Constants.warningSeconds
-        recordingFinalSec = settings.creatorMode ? Constants.creatorFinalWarningSeconds   : Constants.finalWarningSeconds
+        recordingMaxSec   = Constants.maxRecordingSeconds
+        recordingWarnSec  = Constants.warningSeconds
+        recordingFinalSec = Constants.finalWarningSeconds
         soundManager.playStart()
-        audioRecorder.start()
+        let startResult = audioRecorder.start()
+        switch startResult {
+        case .started:
+            break
+        case .startedWithFallback:
+            wLog("Recording started with fallback mic (requested device unavailable)")
+        case .failed(let reason):
+            wLog("Failed to start recording: \(reason)")
+            recordingState = .idle
+            recordingOverlay.showError(message: "Mic unavailable")
+            musicController.resumeMusic()
+            return
+        }
         recordingStartTime = Date()
 
         // Pause music in background — AppleScript calls are slow
@@ -398,6 +441,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Stop recording timer
         recordingTimer?.invalidate()
         recordingTimer = nil
+        let elapsedRecordingTime = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
         recordingStartTime = nil
 
         let packets = audioRecorder.stop()
@@ -405,21 +449,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusBarController.setRecording(false)
 
         guard packets.count >= 5 else {
-            wLog("Too short (\(packets.count) packets), ignoring")
             transcriptionClient.cancelPrewarmedConnection()
-            recordingOverlay.hide()
+            if packets.count == 0 && elapsedRecordingTime > 1.0 {
+                wLog("Recording captured 0 packets over \(String(format: "%.1f", elapsedRecordingTime))s — likely mic disconnected")
+                recordingOverlay.showError(message: "Mic not responding")
+            } else {
+                wLog("Too short (\(packets.count) packets), ignoring")
+                recordingOverlay.hide()
+            }
             musicController.resumeMusic()
             return
         }
 
-        // Show processing indicator while transcribing
         recordingOverlay.showProcessing()
 
-        scheduleProcessingTimeout()
-
-        // Store data available synchronously; drain context queues off main
         pendingPackets = packets
         currentRetryAttempt = 0
+        scheduleProcessingTimeout()
+
+        // Save audio to disk in background — survives crashes and failed retries
+        let packetsToSave = packets
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            self?.pendingAudioFileURL = self?.saveAudioToDisk(packetsToSave)
+        }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self, count = packets.count] in
             guard let self = self else { return }
@@ -568,8 +620,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func scheduleProcessingTimeout() {
+        let packetCount = pendingPackets?.count ?? 0
+        let recordingDuration = Double(packetCount) * Double(Constants.chunkDurationMs) / 1000.0
+        let timeout = max(30.0, 30.0 + recordingDuration * 0.5)
         processingTimeoutTimer?.invalidate()
-        processingTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: false) { [weak self] _ in
+        processingTimeoutTimer = Timer.scheduledTimer(withTimeInterval: timeout, repeats: false) { [weak self] _ in
             guard let self = self else { return }
             wLog("Processing timeout — showing retry UI (packets preserved)")
             self.processingTimeoutTimer = nil
@@ -597,13 +652,98 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func clearPendingTranscription() {
         processingTimeoutTimer?.invalidate()
         processingTimeoutTimer = nil
+        // Delete saved audio file on successful transcription
+        if let url = pendingAudioFileURL {
+            try? FileManager.default.removeItem(at: url)
+            wLog("Deleted saved audio: \(url.lastPathComponent)")
+        }
         pendingPackets = nil
+        pendingAudioFileURL = nil
         pendingAppInfo = nil
         pendingOcrContext = nil
         pendingAxContext = nil
         currentRetryAttempt = 0
         isTranscribing = false
         transcriptionClient.clearEncodingCache()
+    }
+
+    /// Save audio packets to disk so they survive app crashes and failed retries.
+    /// Format: simple concatenation of fixed-size packets (each 1280 bytes = 640 samples × 2).
+    private func saveAudioToDisk(_ packets: [Data]) -> URL? {
+        let filename = "recording-\(logDateFormatter.string(from: Date())).pcm"
+        let url = Self.pendingAudioDir.appendingPathComponent(filename)
+        var combined = Data(capacity: packets.count * Constants.chunkSamples * 2)
+        for packet in packets {
+            combined.append(packet)
+        }
+        do {
+            try combined.write(to: url)
+            wLog("Saved \(packets.count) packets (\(combined.count / 1024)KB) to \(filename)")
+            return url
+        } catch {
+            wLog("Failed to save audio: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Load audio packets back from a saved file.
+    private func loadAudioFromDisk(_ url: URL) -> [Data]? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let packetSize = Constants.chunkSamples * 2 // 1280 bytes
+        guard data.count >= packetSize else { return nil }
+        var packets: [Data] = []
+        packets.reserveCapacity(data.count / packetSize)
+        var offset = 0
+        while offset + packetSize <= data.count {
+            packets.append(data.subdata(in: offset..<(offset + packetSize)))
+            offset += packetSize
+        }
+        wLog("Loaded \(packets.count) packets from \(url.lastPathComponent)")
+        return packets
+    }
+
+    /// Check for leftover audio from a previous crash/failure and offer retry.
+    private func recoverPendingAudio() {
+        let dir = Self.pendingAudioDir
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.creationDateKey]) else { return }
+        let pcmFiles = files.filter { $0.pathExtension == "pcm" }
+        guard let mostRecent = pcmFiles.sorted(by: {
+            let d1 = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            let d2 = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            return d1 > d2
+        }).first else { return }
+
+        // Only recover files from the last 24 hours
+        if let created = (try? mostRecent.resourceValues(forKeys: [.creationDateKey]).creationDate),
+           Date().timeIntervalSince(created) > 86400 {
+            // Too old — clean up all pending files
+            for file in pcmFiles { try? FileManager.default.removeItem(at: file) }
+            return
+        }
+
+        guard let packets = loadAudioFromDisk(mostRecent) else {
+            try? FileManager.default.removeItem(at: mostRecent)
+            return
+        }
+
+        wLog("Recovered \(packets.count) packets from previous session: \(mostRecent.lastPathComponent)")
+        pendingPackets = packets
+        pendingAudioFileURL = mostRecent
+        pendingAppInfo = ["name": "Unknown", "bundle_id": "", "type": "other", "url": ""]
+        currentRetryAttempt = 0
+
+        DispatchQueue.main.async {
+            self.recordingOverlay.showRetryableError(
+                message: "Recovered unsent recording",
+                onRetry: { [weak self] in self?.retryTranscription() },
+                onDismiss: { [weak self] in self?.dismissRetry() }
+            )
+        }
+
+        // Clean up any other old files
+        for file in pcmFiles where file != mostRecent {
+            try? FileManager.default.removeItem(at: file)
+        }
     }
 
     // MARK: - Polish
@@ -781,6 +921,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let observer = settingsObserver { NotificationCenter.default.removeObserver(observer) }
+        if let observer = audioDevicesObserver { NotificationCenter.default.removeObserver(observer) }
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        if let monitor = cmdCommaMonitor { NSEvent.removeMonitor(monitor) }
+        hotkeyListener.stop()
+        wisprFlowSessionWatcher?.cancel()
+        wisprFlowSessionWatcher = nil
+        logFile?.closeFile()
         audioRecorder.cleanup()
         historyStore.close()
         dbManager.close()

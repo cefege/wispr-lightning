@@ -6,21 +6,32 @@ class SoundManager {
     private var startPlayer: AVAudioPlayer?
     private var stopPlayer: AVAudioPlayer?
     private var pastePlayer: AVAudioPlayer?
+    private var settingsObserver: NSObjectProtocol?
+    private var previewObserver: NSObjectProtocol?
 
     init(settings: AppSettings) {
         self.settings = settings
         loadSoundPack()
 
-        NotificationCenter.default.addObserver(
+        settingsObserver = NotificationCenter.default.addObserver(
             forName: .settingsChanged, object: nil, queue: .main
         ) { [weak self] _ in
             self?.loadSoundPack()
         }
 
-        NotificationCenter.default.addObserver(
+        previewObserver = NotificationCenter.default.addObserver(
             forName: .previewSoundPack, object: nil, queue: .main
         ) { [weak self] _ in
             self?.playStart()
+        }
+    }
+
+    deinit {
+        if let observer = settingsObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = previewObserver {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 

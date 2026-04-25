@@ -6,9 +6,20 @@ class TranscriptionClient {
     var dictionaryStore: DictionaryStore?
     private var prewarmedTask: URLSessionWebSocketTask?
     private let prewarmLock = NSLock()
-    private static let responseTimeoutSeconds: Double = 10
-    private var cachedEncoding: (packetCount: Int, encoded: String)?
+    /// Max packets per WebSocket append message (~20 seconds of audio, ~800KB encoded)
+    private static let chunkSize = 500
+    private var cachedEncoding: (packetCount: Int, prepared: PreparedAudio)?
     private let encodingQueue = DispatchQueue(label: "com.wisprlightning.encode", qos: .userInitiated)
+
+    private struct PreparedAudio {
+        let encodedPackets: [String]
+        let volumes: [Double]
+    }
+
+    /// Dynamic response timeout: minimum 15s, scales with recording duration
+    private static func responseTimeout(for packetCount: Int) -> Double {
+        max(15.0, Double(packetCount) * Double(Constants.chunkDurationMs) / 1000.0 * 0.5)
+    }
 
     init(session: Session, settings: AppSettings) {
         self.session = session
@@ -20,6 +31,7 @@ class TranscriptionClient {
         var request = URLRequest(url: url)
         request.setValue("json", forHTTPHeaderField: "Encoding")
         let task = URLSession.shared.webSocketTask(with: request)
+        task.maximumMessageSize = 10 * 1024 * 1024 // 10MB receive buffer
         task.resume()
         return task
     }
@@ -159,18 +171,18 @@ class TranscriptionClient {
         }
 
         // Start encoding audio (reuse cache on retry, or encode in parallel with auth)
-        var preparedAppendString: String?
+        var preparedAudio: PreparedAudio?
         var encodeGroup: DispatchGroup?
 
         if let cached = cachedEncoding, cached.packetCount == packets.count {
-            preparedAppendString = cached.encoded
+            preparedAudio = cached.prepared
         } else {
             let group = DispatchGroup()
             group.enter()
             encodingQueue.async {
-                preparedAppendString = self.prepareAudioMessage(packets: packets)
-                if let encoded = preparedAppendString {
-                    self.cachedEncoding = (packetCount: packets.count, encoded: encoded)
+                preparedAudio = self.prepareAudio(packets: packets)
+                if let prepared = preparedAudio {
+                    self.cachedEncoding = (packetCount: packets.count, prepared: prepared)
                 }
                 group.leave()
             }
@@ -202,7 +214,7 @@ class TranscriptionClient {
                     if statusWord == "auth" {
                         wLog("WebSocket authenticated")
                         let sendAudio = {
-                            self.sendPreparedAudio(wsTask: wsTask, appendString: preparedAppendString, packetCount: packets.count, transcriptUUID: transcriptUUID, completion: safeComplete)
+                            self.sendPreparedAudio(wsTask: wsTask, prepared: preparedAudio, packetCount: packets.count, transcriptUUID: transcriptUUID, completion: safeComplete)
                         }
                         if let group = encodeGroup {
                             group.notify(queue: self.encodingQueue, execute: sendAudio)
@@ -226,7 +238,7 @@ class TranscriptionClient {
         }
     }
 
-    private func prepareAudioMessage(packets: [Data]) -> String? {
+    private func prepareAudio(packets: [Data]) -> PreparedAudio? {
         var encodedPackets: [String] = []
         encodedPackets.reserveCapacity(packets.count)
         var volumes: [Double] = []
@@ -248,61 +260,83 @@ class TranscriptionClient {
             volumes.append((rms / 32768.0 * 10000).rounded() / 10000)
         }
 
-        let appendMsg: [String: Any] = [
-            "type": "append",
-            "audio_packets": [
-                "packets": encodedPackets,
-                "volumes": volumes,
-                "packet_duration": Double(Constants.chunkDurationMs) / 1000.0,
-                "audio_encoding": "wav",
-                "byte_encoding": "ascii85"
-            ] as [String: Any],
-            "position": 0,
-            "final": true
-        ]
-
-        guard let appendData = try? JSONSerialization.data(withJSONObject: appendMsg),
-              let appendString = String(data: appendData, encoding: .utf8) else {
-            return nil
-        }
-        return appendString
+        return PreparedAudio(encodedPackets: encodedPackets, volumes: volumes)
     }
 
-    private func sendPreparedAudio(wsTask: URLSessionWebSocketTask, appendString: String?, packetCount: Int, transcriptUUID: String, completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
-        guard let appendString = appendString else {
+    private func sendPreparedAudio(wsTask: URLSessionWebSocketTask, prepared: PreparedAudio?, packetCount: Int, transcriptUUID: String, completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
+        guard let prepared = prepared else {
             wsTask.cancel(with: .internalServerError, reason: nil)
             completion(.failure(.connectionFailed))
             return
         }
 
-        wLogVerbose("WS sending append — \(packetCount) packets")
-        wsTask.send(.string(appendString)) { error in
+        let totalPackets = prepared.encodedPackets.count
+        wLog("Sending \(totalPackets) packets in chunks of \(Self.chunkSize)")
+        sendNextChunk(wsTask: wsTask, prepared: prepared, offset: 0, totalPackets: totalPackets, transcriptUUID: transcriptUUID, completion: completion)
+    }
+
+    private func sendCommitAndReceive(wsTask: URLSessionWebSocketTask, totalPackets: Int, transcriptUUID: String, completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
+        let commitMsg: [String: Any] = [
+            "type": "commit",
+            "total_packets": totalPackets
+        ]
+        guard let commitData = try? JSONSerialization.data(withJSONObject: commitMsg),
+              let commitString = String(data: commitData, encoding: .utf8) else {
+            completion(.failure(.connectionFailed))
+            return
+        }
+
+        wsTask.send(.string(commitString)) { error in
             if let error = error {
-                NSLog("Wispr Lightning: WS append send failed: %@", error.localizedDescription)
+                NSLog("Wispr Lightning: WS commit send failed: %@", error.localizedDescription)
                 completion(.failure(.connectionFailed))
                 return
             }
 
-            // Send commit
-            let commitMsg: [String: Any] = [
-                "type": "commit",
-                "total_packets": packetCount
-            ]
-            guard let commitData = try? JSONSerialization.data(withJSONObject: commitMsg),
-                  let commitString = String(data: commitData, encoding: .utf8) else {
+            let chunkCount = (totalPackets + Self.chunkSize - 1) / Self.chunkSize
+            NSLog("Wispr Lightning: Audio sent — %d packets in %d chunks, waiting for transcription...", totalPackets, chunkCount)
+            self.receiveResultWithTimeout(wsTask: wsTask, transcriptUUID: transcriptUUID, packetCount: totalPackets, completion: completion)
+        }
+    }
+
+    private func sendNextChunk(wsTask: URLSessionWebSocketTask, prepared: PreparedAudio, offset: Int, totalPackets: Int, transcriptUUID: String, completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
+        let end = min(offset + Self.chunkSize, totalPackets)
+        let isFinal = end >= totalPackets
+        let chunkPackets = Array(prepared.encodedPackets[offset..<end])
+        let chunkVolumes = Array(prepared.volumes[offset..<end])
+
+        let appendMsg: [String: Any] = [
+            "type": "append",
+            "audio_packets": [
+                "packets": chunkPackets,
+                "volumes": chunkVolumes,
+                "packet_duration": Double(Constants.chunkDurationMs) / 1000.0,
+                "audio_encoding": "wav",
+                "byte_encoding": "ascii85"
+            ] as [String: Any],
+            "position": offset,
+            "final": isFinal
+        ]
+
+        guard let appendData = try? JSONSerialization.data(withJSONObject: appendMsg),
+              let appendString = String(data: appendData, encoding: .utf8) else {
+            completion(.failure(.connectionFailed))
+            return
+        }
+
+        wLogVerbose("WS sending chunk \(offset)..<\(end) of \(totalPackets) (\(appendString.count) bytes, final=\(isFinal))")
+        wsTask.send(.string(appendString)) { [self] error in
+            if let error = error {
+                NSLog("Wispr Lightning: WS chunk send failed: %@", error.localizedDescription)
                 completion(.failure(.connectionFailed))
                 return
             }
 
-            wsTask.send(.string(commitString)) { error in
-                if let error = error {
-                    NSLog("Wispr Lightning: WS commit send failed: %@", error.localizedDescription)
-                    completion(.failure(.connectionFailed))
-                    return
-                }
-
-                NSLog("Wispr Lightning: Audio sent — %d packets, waiting for transcription...", packetCount)
-                self.receiveResultWithTimeout(wsTask: wsTask, transcriptUUID: transcriptUUID, packetCount: packetCount, completion: completion)
+            if isFinal {
+                self.sendCommitAndReceive(wsTask: wsTask, totalPackets: totalPackets, transcriptUUID: transcriptUUID, completion: completion)
+            } else {
+                // Send next chunk
+                self.sendNextChunk(wsTask: wsTask, prepared: prepared, offset: end, totalPackets: totalPackets, transcriptUUID: transcriptUUID, completion: completion)
             }
         }
     }
@@ -322,14 +356,15 @@ class TranscriptionClient {
             completion(result)
         }
 
-        // Start timeout deadline
+        // Start timeout deadline — scales with recording duration
+        let timeout = Self.responseTimeout(for: packetCount)
         let timeoutWork = DispatchWorkItem {
-            NSLog("Wispr Lightning: WebSocket response timed out after %.0fs", Self.responseTimeoutSeconds)
+            NSLog("Wispr Lightning: WebSocket response timed out after %.0fs", timeout)
             wsTask.cancel(with: .abnormalClosure, reason: nil)
             safeComplete(.failure(.timeout))
         }
         DispatchQueue.global(qos: .userInitiated).asyncAfter(
-            deadline: .now() + Self.responseTimeoutSeconds,
+            deadline: .now() + timeout,
             execute: timeoutWork
         )
 

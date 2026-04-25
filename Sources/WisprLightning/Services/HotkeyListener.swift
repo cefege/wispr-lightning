@@ -106,6 +106,10 @@ class HotkeyListener {
         if let m = keyMonitor { monitors.append(m) }
     }
 
+    func stop() {
+        removeMonitors()
+    }
+
     private func removeMonitors() {
         for monitor in monitors {
             NSEvent.removeMonitor(monitor)
