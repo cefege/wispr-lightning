@@ -588,6 +588,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         self.recordingOverlay.showRetryableError(
                             message: error.userMessage,
                             onRetry: { [weak self] in self?.retryTranscription() },
+                            onSave: { [weak self] in self?.saveAudioToDownloads() },
                             onDismiss: { [weak self] in self?.dismissRetry() }
                         )
                     }
@@ -600,6 +601,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         self.recordingOverlay.showRetryableError(
                             message: error.userMessage,
                             onRetry: { [weak self] in self?.retryTranscription() },
+                            onSave: { [weak self] in self?.saveAudioToDownloads() },
                             onDismiss: { [weak self] in self?.dismissRetry() }
                         )
                     }
@@ -633,6 +635,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.recordingOverlay.showRetryableError(
                 message: "Timed out",
                 onRetry: { [weak self] in self?.retryTranscription() },
+                onSave: { [weak self] in self?.saveAudioToDownloads() },
                 onDismiss: { [weak self] in self?.dismissRetry() }
             )
         }
@@ -665,6 +668,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         currentRetryAttempt = 0
         isTranscribing = false
         transcriptionClient.clearEncodingCache()
+    }
+
+    /// Save audio as a playable WAV file to ~/Downloads.
+    private func saveAudioToDownloads() {
+        guard let packets = pendingPackets, !packets.isEmpty else { return }
+        let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+        let timestamp = logDateFormatter.string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let url = downloadsDir.appendingPathComponent("wispr-recording-\(timestamp).wav")
+
+        let packetSize = Constants.chunkSamples * 2  // 1280 bytes
+        let dataSize = UInt32(packets.count * packetSize)
+        var wav = Data(capacity: 44 + Int(dataSize))
+
+        func appendU16(_ d: inout Data, _ v: UInt16) { var le = v.littleEndian; d.append(Data(bytes: &le, count: 2)) }
+        func appendU32(_ d: inout Data, _ v: UInt32) { var le = v.littleEndian; d.append(Data(bytes: &le, count: 4)) }
+
+        // RIFF header
+        wav.append(contentsOf: [0x52, 0x49, 0x46, 0x46]) // "RIFF"
+        appendU32(&wav, 36 + dataSize)
+        wav.append(contentsOf: [0x57, 0x41, 0x56, 0x45]) // "WAVE"
+        // fmt chunk
+        wav.append(contentsOf: [0x66, 0x6D, 0x74, 0x20]) // "fmt "
+        appendU32(&wav, 16)                                // chunk size
+        appendU16(&wav, 1)                                 // PCM
+        appendU16(&wav, 1)                                 // mono
+        appendU32(&wav, UInt32(Constants.sampleRate))
+        appendU32(&wav, UInt32(Constants.sampleRate * 2))  // byte rate
+        appendU16(&wav, 2)                                 // block align
+        appendU16(&wav, 16)                                // bits per sample
+        // data chunk
+        wav.append(contentsOf: [0x64, 0x61, 0x74, 0x61]) // "data"
+        appendU32(&wav, dataSize)
+        for packet in packets {
+            wav.append(packet)
+        }
+
+        do {
+            try wav.write(to: url)
+            wLog("Saved WAV to Downloads: \(url.lastPathComponent) (\(wav.count / 1024)KB)")
+        } catch {
+            wLog("Failed to save WAV to Downloads: \(error.localizedDescription)")
+        }
     }
 
     /// Save audio packets to disk so they survive app crashes and failed retries.
@@ -736,6 +782,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.recordingOverlay.showRetryableError(
                 message: "Recovered unsent recording",
                 onRetry: { [weak self] in self?.retryTranscription() },
+                onSave: { [weak self] in self?.saveAudioToDownloads() },
                 onDismiss: { [weak self] in self?.dismissRetry() }
             )
         }

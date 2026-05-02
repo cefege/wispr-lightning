@@ -100,15 +100,19 @@ class TranscriptionClient {
             completion(result)
         }
 
-        // Use prewarmed connection if available (TCP+TLS already done)
+        // Use prewarmed connection if available and still connected (TCP+TLS already done)
         let wsTask: URLSessionWebSocketTask
         prewarmLock.lock()
         let prewarmed = prewarmedTask
         prewarmedTask = nil
         prewarmLock.unlock()
-        if let prewarmed = prewarmed {
+        if let prewarmed = prewarmed, prewarmed.state == .running {
             wsTask = prewarmed
         } else {
+            if let prewarmed = prewarmed {
+                wLog("Prewarmed connection stale (state: \(prewarmed.state.rawValue)), creating fresh one")
+                prewarmed.cancel(with: .normalClosure, reason: nil)
+            }
             guard let newTask = createWebSocketTask() else {
                 safeComplete(.failure(.connectionFailed))
                 return

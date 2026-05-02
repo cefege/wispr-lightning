@@ -10,8 +10,10 @@ class RecordingOverlay {
     private var warningState = 0
     private var errorDismissTimer: Timer?
     private var retryButton: NSButton?
+    private var saveButton: NSButton?
     private var dismissButton: NSButton?
     private var onRetryAction: (() -> Void)?
+    private var onSaveAction: (() -> Void)?
     private var onDismissAction: (() -> Void)?
     private var currentPanelWidth: CGFloat = 120
 
@@ -27,8 +29,12 @@ class RecordingOverlay {
             warningState = 0
             timeLabel?.isHidden = true
             retryButton?.isHidden = true
+            saveButton?.isHidden = true
+            saveButton?.title = "Save"
+            saveButton?.isEnabled = true
             dismissButton?.isHidden = true
             onRetryAction = nil
+            onSaveAction = nil
             onDismissAction = nil
             effectView?.layer?.backgroundColor = nil
             dotView?.isHidden = false
@@ -111,6 +117,13 @@ class RecordingOverlay {
         retry.isHidden = true
         self.retryButton = retry
 
+        let save = NSButton(title: "Save", target: self, action: #selector(saveButtonClicked))
+        save.bezelStyle = .rounded
+        save.controlSize = .small
+        save.font = Theme.Fonts.body
+        save.isHidden = true
+        self.saveButton = save
+
         let dismiss = NSButton(title: "✕", target: self, action: #selector(dismissButtonClicked))
         dismiss.bezelStyle = .inline
         dismiss.isBordered = false
@@ -123,6 +136,7 @@ class RecordingOverlay {
         stack.addArrangedSubview(label)
         stack.addArrangedSubview(tLabel)
         stack.addArrangedSubview(retry)
+        stack.addArrangedSubview(save)
         stack.addArrangedSubview(dismiss)
 
         effectView.addSubview(stack)
@@ -140,8 +154,10 @@ class RecordingOverlay {
         dotView?.isHidden = false
         dotView?.layer?.backgroundColor = Theme.Colors.error.cgColor
         retryButton?.isHidden = true
+        saveButton?.isHidden = true
         dismissButton?.isHidden = true
         onRetryAction = nil
+        onSaveAction = nil
         onDismissAction = nil
         panel?.orderOut(nil)
     }
@@ -204,12 +220,14 @@ class RecordingOverlay {
         effectView?.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.3).cgColor
     }
 
-    func showRetryableError(message: String, onRetry: @escaping () -> Void, onDismiss: @escaping () -> Void) {
-        configureErrorState(message: message, width: 260)
+    func showRetryableError(message: String, onRetry: @escaping () -> Void, onSave: (() -> Void)? = nil, onDismiss: @escaping () -> Void) {
+        configureErrorState(message: message, width: onSave != nil ? 300 : 260)
 
         onRetryAction = onRetry
+        onSaveAction = onSave
         onDismissAction = onDismiss
         retryButton?.isHidden = false
+        saveButton?.isHidden = onSave == nil
         dismissButton?.isHidden = false
 
         // No auto-dismiss timer — persistent until user acts
@@ -221,6 +239,7 @@ class RecordingOverlay {
         stopPulsing()
         dotView?.isHidden = true
         retryButton?.isHidden = true
+        saveButton?.isHidden = true
         dismissButton?.isHidden = true
         timeLabel?.isHidden = true
         spinner?.isHidden = false
@@ -233,6 +252,12 @@ class RecordingOverlay {
 
     @objc private func retryButtonClicked() {
         onRetryAction?()
+    }
+
+    @objc private func saveButtonClicked() {
+        onSaveAction?()
+        saveButton?.title = "Saved"
+        saveButton?.isEnabled = false
     }
 
     @objc private func dismissButtonClicked() {
