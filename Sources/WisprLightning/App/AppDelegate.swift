@@ -98,7 +98,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         transcriptionClient = TranscriptionClient(session: session, settings: settings)
         transcriptionClient.dictionaryStore = dictionaryStore
         polishService = PolishService(session: session, settings: settings)
-        textInjector = TextInjector()
+        textInjector = TextInjector(settings: settings)
         soundManager = SoundManager(settings: settings)
         musicController = MusicController(settings: settings)
 

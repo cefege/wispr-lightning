@@ -685,6 +685,26 @@ private struct DictationDetail: View {
                     description: "Extended recording for long-form content (up to 10 min)",
                     isOn: $vm.creatorMode)
                     .onChange(of: vm.creatorMode) { _ in vm.saveDictationSettings() }
+
+                Divider()
+
+                SettingsToggleRow("Natural Mode",
+                    description: "Type text character-by-character instead of pasting (slower but feels human)",
+                    isOn: $vm.naturalModeEnabled)
+                    .onChange(of: vm.naturalModeEnabled) { _ in vm.saveDictationSettings() }
+
+                if vm.naturalModeEnabled {
+                    Picker("Typing speed", selection: $vm.naturalModeSpeed) {
+                        Text("Slow").tag("slow")
+                        Text("Normal").tag("normal")
+                        Text("Expert").tag("expert")
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: vm.naturalModeSpeed) { _ in vm.saveDictationSettings() }
+                    Text("Slow ≈ 30 WPM, Normal ≈ 50 WPM, Expert ≈ 80 WPM")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(Theme.Spacing.medium)
         }
@@ -969,6 +989,10 @@ class SettingsViewModel: ObservableObject {
     // Creator Mode
     @Published var creatorMode: Bool
 
+    // Natural Mode
+    @Published var naturalModeEnabled: Bool
+    @Published var naturalModeSpeed: String
+
     // Sound Packs
     @Published var selectedSoundPack: String?
     @Published var availableSoundPacks: [String] = []
@@ -1142,6 +1166,10 @@ class SettingsViewModel: ObservableObject {
         // Creator Mode
         self.creatorMode = settings.creatorMode
 
+        // Natural Mode
+        self.naturalModeEnabled = settings.naturalModeEnabled
+        self.naturalModeSpeed = settings.naturalModeSpeed
+
         // Sound Packs
         self.selectedSoundPack = settings.selectedSoundPack
 
@@ -1209,6 +1237,8 @@ class SettingsViewModel: ObservableObject {
         settings.emailAutoSignature = emailAutoSignature
         settings.emailSignatureOption = emailSignatureOption
         settings.creatorMode = creatorMode
+        settings.naturalModeEnabled = naturalModeEnabled
+        settings.naturalModeSpeed = naturalModeSpeed
         settings.save()
     }
 

@@ -1,8 +1,20 @@
 import AppKit
+import Carbon.HIToolbox
 import CoreGraphics
 
 class TextInjector {
     private let injectionQueue = DispatchQueue(label: "com.wisprlightning.textinjection")
+    private let settings: AppSettings?
+
+    /// Reverse map of the current keyboard layout: character → (virtual key code,
+    /// modifier flags). Lazily built on first Natural Mode use and cached. We
+    /// rebuild if the layout changes mid-session.
+    private var layoutMap: [Character: (keyCode: UInt16, flags: CGEventFlags)] = [:]
+    private var layoutMapSourceID: String?
+
+    init(settings: AppSettings? = nil) {
+        self.settings = settings
+    }
 
     /// Read the currently selected text via Accessibility API.
     /// Returns the selected text string, or nil if no selection.
@@ -77,8 +89,164 @@ class TextInjector {
         injectionQueue.async {
             // Brief delay to ensure hotkey release is fully processed
             Thread.sleep(forTimeInterval: 0.01)
-            self.pasteViaClipboard(text: text, completion: completion)
+            if self.settings?.naturalModeEnabled == true {
+                self.typeAsKeystrokes(text: text, completion: completion)
+            } else {
+                self.pasteViaClipboard(text: text, completion: completion)
+            }
         }
+    }
+
+    /// Average chars-per-second for each speed preset. Calibrated to common
+    /// human typing speeds: slow ≈ 30 WPM, normal ≈ 50 WPM, expert ≈ 80 WPM
+    /// (5 chars per word convention).
+    private func charsPerSecond(for preset: String) -> Double {
+        switch preset {
+        case "slow":   return 2.5
+        case "expert": return 6.5
+        default:       return 4.0
+        }
+    }
+
+    private func typeAsKeystrokes(text: String, completion: @escaping (_ pasteSucceeded: Bool) -> Void) {
+        let cps = charsPerSecond(for: settings?.naturalModeSpeed ?? "normal")
+        let baseDelay = 1.0 / cps
+
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard source != nil else {
+            wLog("Natural Mode: failed to create CGEventSource — falling back to paste")
+            pasteViaClipboard(text: text, completion: completion)
+            return
+        }
+
+        // TIS APIs assert main-thread; build/refresh map there, then type
+        // from the background queue.
+        DispatchQueue.main.sync { self.ensureLayoutMap() }
+        wLog("Natural Mode typing \(text.count) chars at \(cps) cps (layout map: \(layoutMap.count) entries)")
+
+        for ch in text {
+            postCharacter(ch, source: source)
+            // ±40% jitter so timing doesn't look mechanical
+            let jitter = Double.random(in: 0.6...1.4)
+            Thread.sleep(forTimeInterval: baseDelay * jitter)
+        }
+
+        completion(true)
+    }
+
+    /// Post a single character as a real keystroke. For characters present on
+    /// the current keyboard layout, this uses the actual virtual key code +
+    /// modifier flags — indistinguishable from a real keypress to anything
+    /// observing CGEventTap or NSEvent.keyDown. Falls back to unicode string
+    /// injection only for characters with no key on the current layout
+    /// (emoji, CJK on a Latin layout, etc.).
+    private func postCharacter(_ ch: Character, source: CGEventSource?) {
+        // Newlines: real Return key (vk 36)
+        if ch == "\n" {
+            postKey(virtualKey: 36, flags: [], source: source)
+            return
+        }
+        // Tabs: real Tab key (vk 48)
+        if ch == "\t" {
+            postKey(virtualKey: 48, flags: [], source: source)
+            return
+        }
+        if let mapped = layoutMap[ch] {
+            postKey(virtualKey: mapped.keyCode, flags: mapped.flags, source: source)
+        } else {
+            postUnicodeFallback(ch, source: source)
+        }
+    }
+
+    private func postKey(virtualKey: UInt16, flags: CGEventFlags, source: CGEventSource?) {
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: false) else { return }
+        if !flags.isEmpty {
+            down.flags = flags
+            up.flags = flags
+        }
+        down.post(tap: .cghidEventTap)
+        // Real key presses have non-zero hold time. 30-80ms looks human and
+        // ensures fast-key detectors register a press, not a glitch.
+        Thread.sleep(forTimeInterval: Double.random(in: 0.030...0.080))
+        up.post(tap: .cghidEventTap)
+    }
+
+    private func postUnicodeFallback(_ ch: Character, source: CGEventSource?) {
+        let utf16 = Array(String(ch).utf16)
+        guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else { return }
+        utf16.withUnsafeBufferPointer { buf in
+            if let base = buf.baseAddress {
+                down.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: base)
+                up.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: base)
+            }
+        }
+        down.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: Double.random(in: 0.030...0.080))
+        up.post(tap: .cghidEventTap)
+    }
+
+    /// Build (or rebuild if layout changed) a reverse map from each character
+    /// reachable on the current keyboard layout to its (virtualKey, flags).
+    /// Iterates all virtual keys × every relevant modifier combo and asks
+    /// `UCKeyTranslate` what character they produce on the user's layout.
+    private func ensureLayoutMap() {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return }
+        let idPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
+        let currentID = idPtr.map { Unmanaged<CFString>.fromOpaque($0).takeUnretainedValue() as String } ?? ""
+        if currentID == layoutMapSourceID, !layoutMap.isEmpty { return }
+
+        guard let layoutDataPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+            wLog("Natural Mode: keyboard layout data unavailable")
+            return
+        }
+        let layoutData = Unmanaged<CFData>.fromOpaque(layoutDataPtr).takeUnretainedValue()
+        let bytes = CFDataGetBytePtr(layoutData)
+        let keyboardLayout = UnsafeRawPointer(bytes!).assumingMemoryBound(to: UCKeyboardLayout.self)
+
+        // (UCKeyTranslate modifier key state, CGEvent flags) — cmd is omitted
+        // intentionally because it suppresses character generation.
+        let modCombos: [(UInt32, CGEventFlags)] = [
+            (0,                                                    []),
+            (UInt32(shiftKey >> 8),                                .maskShift),
+            (UInt32(optionKey >> 8),                               .maskAlternate),
+            (UInt32((shiftKey | optionKey) >> 8),                  [.maskShift, .maskAlternate]),
+        ]
+
+        var newMap: [Character: (UInt16, CGEventFlags)] = [:]
+        let kbdType = UInt32(LMGetKbdType())
+
+        for keyCode in UInt16(0)..<UInt16(128) {
+            for (modKey, flags) in modCombos {
+                var deadKeyState: UInt32 = 0
+                var chars = [UniChar](repeating: 0, count: 4)
+                var actualLen = 0
+                let err = UCKeyTranslate(
+                    keyboardLayout,
+                    keyCode,
+                    UInt16(kUCKeyActionDown),
+                    modKey,
+                    kbdType,
+                    UInt32(kUCKeyTranslateNoDeadKeysBit),
+                    &deadKeyState,
+                    chars.count,
+                    &actualLen,
+                    &chars
+                )
+                guard err == noErr, actualLen > 0 else { continue }
+                let s = String(utf16CodeUnits: chars, count: actualLen)
+                guard s.count == 1, let ch = s.first else { continue }
+                // Skip control chars; we handle \n and \t explicitly.
+                if let scalar = ch.unicodeScalars.first, scalar.value < 0x20 { continue }
+                if newMap[ch] == nil {
+                    newMap[ch] = (keyCode, flags)
+                }
+            }
+        }
+
+        layoutMap = newMap
+        layoutMapSourceID = currentID
     }
 
     private func pasteViaClipboard(text: String, completion: @escaping (_ pasteSucceeded: Bool) -> Void) {

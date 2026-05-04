@@ -140,6 +140,11 @@ class StatusBarController {
         if settings.hotkeyPaused { pauseItem.state = .on }
         menu.addItem(pauseItem)
 
+        let naturalItem = NSMenuItem(title: "Natural Mode", action: #selector(toggleNaturalMode), keyEquivalent: "")
+        naturalItem.target = self
+        naturalItem.state = settings.naturalModeEnabled ? .on : .off
+        menu.addItem(naturalItem)
+
         let settingsItem = NSMenuItem(title: "Settings", action: #selector(openSettingsWindow), keyEquivalent: ",")
         settingsItem.keyEquivalentModifierMask = .command
         settingsItem.target = self
@@ -178,6 +183,12 @@ class StatusBarController {
 
     @objc private func togglePauseHotkey() {
         onTogglePause?()
+        buildMenu()
+    }
+
+    @objc private func toggleNaturalMode() {
+        settings.naturalModeEnabled.toggle()
+        settings.save()
         buildMenu()
     }
 

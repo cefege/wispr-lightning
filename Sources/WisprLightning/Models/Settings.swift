@@ -58,6 +58,10 @@ class AppSettings: Codable {
     // Hotkey
     var hotkeyPaused: Bool = false
 
+    // Natural Mode — type text character-by-character instead of pasting
+    var naturalModeEnabled: Bool = false
+    var naturalModeSpeed: String = "normal"  // "slow" | "normal" | "expert"
+
     static let settingsURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/WisprLightning")
