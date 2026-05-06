@@ -146,9 +146,14 @@ class TextInjector {
     /// injection only for characters with no key on the current layout
     /// (emoji, CJK on a Latin layout, etc.).
     private func postCharacter(_ ch: Character, source: CGEventSource?) {
-        // Newlines: real Return key (vk 36)
+        // Newlines: Shift+Return (vk 36 + shift). Bare Return submits in most
+        // chat apps (Slack, Discord, ChatGPT, Claude Code's prompt, etc.) and
+        // executes in shells, so dictating a newline mid-message would send
+        // the message early. Shift+Return is the "newline without submit"
+        // convention in those apps. Raw shells (Terminal.app, bash/zsh) do
+        // treat the two the same and will still submit either way.
         if ch == "\n" {
-            postKey(virtualKey: 36, flags: [], source: source)
+            postKey(virtualKey: 36, flags: [.maskShift], source: source)
             return
         }
         // Tabs: real Tab key (vk 48)
