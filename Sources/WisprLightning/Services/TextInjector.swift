@@ -112,10 +112,7 @@ class TextInjector {
         let cps = charsPerSecond(for: settings?.naturalModeSpeed ?? "normal")
         let baseDelay = 1.0 / cps
 
-        // Private state — isolated from the user's hardware keyboard. Without
-        // this, physical Caps Lock (or a held shift) bleeds into our synthesized
-        // events and inverts the case of every letter.
-        let source = CGEventSource(stateID: .privateState)
+        let source = CGEventSource(stateID: .hidSystemState)
         guard source != nil else {
             wLog("Natural Mode: failed to create CGEventSource — falling back to paste")
             pasteViaClipboard(text: text, completion: completion)
@@ -164,12 +161,10 @@ class TextInjector {
     private func postKey(virtualKey: UInt16, flags: CGEventFlags, source: CGEventSource?) {
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: false) else { return }
-        // Always pin the modifier flags to exactly what the layout map says,
-        // including the empty case for lowercase letters. Skipping this for
-        // empty flags lets the system layer the current Caps Lock state on top
-        // and flip the case.
-        down.flags = flags
-        up.flags = flags
+        if !flags.isEmpty {
+            down.flags = flags
+            up.flags = flags
+        }
         down.post(tap: .cghidEventTap)
         // Real key presses have non-zero hold time. 30-80ms looks human and
         // ensures fast-key detectors register a press, not a glitch.
@@ -181,8 +176,6 @@ class TextInjector {
         let utf16 = Array(String(ch).utf16)
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else { return }
-        down.flags = []
-        up.flags = []
         utf16.withUnsafeBufferPointer { buf in
             if let base = buf.baseAddress {
                 down.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: base)
