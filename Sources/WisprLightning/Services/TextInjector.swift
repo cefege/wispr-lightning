@@ -4,21 +4,19 @@ import CoreGraphics
 
 class TextInjector {
     private let injectionQueue = DispatchQueue(label: "com.wisprlightning.textinjection")
-    private let settings: AppSettings?
+    private let settings: AppSettings
 
-    /// Reverse map of the current keyboard layout: character → (virtual key code,
-    /// modifier flags). Lazily built on first Natural Mode use and cached. We
-    /// rebuild if the layout changes mid-session.
+    /// Reverse map of the current keyboard layout. Cached and rebuilt only
+    /// when the active input source changes mid-session.
     private var layoutMap: [Character: (keyCode: UInt16, flags: CGEventFlags)] = [:]
     private var layoutMapSourceID: String?
 
-    /// Cancel flag for Natural Mode. Flipped to `true` from the main thread by
-    /// the Escape-key NSEvent monitor; checked between characters by the typing
-    /// loop on `injectionQueue`. Lock keeps the read/write race-free.
+    /// Flipped to `true` from the main-thread Esc monitor; read between
+    /// characters by the typing loop on `injectionQueue`.
     private let cancelLock = NSLock()
     private var _cancelTyping = false
 
-    init(settings: AppSettings? = nil) {
+    init(settings: AppSettings) {
         self.settings = settings
     }
 
@@ -105,9 +103,9 @@ class TextInjector {
         wLog("TextInjector.inject called with \(text.count) chars")
 
         injectionQueue.async {
-            // Brief delay to ensure hotkey release is fully processed
+            // Wait for the hotkey release to settle before posting events.
             Thread.sleep(forTimeInterval: 0.01)
-            if self.settings?.naturalModeEnabled == true {
+            if self.settings.naturalModeEnabled {
                 self.typeAsKeystrokes(text: text, completion: completion)
             } else {
                 self.pasteViaClipboard(text: text, completion: completion)
@@ -115,9 +113,8 @@ class TextInjector {
         }
     }
 
-    /// Average chars-per-second for each speed preset. Calibrated to common
-    /// human typing speeds: slow ≈ 30 WPM, normal ≈ 50 WPM, expert ≈ 80 WPM
-    /// (5 chars per word convention).
+    /// Calibrated to slow ≈ 30 WPM, normal ≈ 50 WPM, expert ≈ 80 WPM
+    /// (5 chars per word).
     private func charsPerSecond(for preset: String) -> Double {
         switch preset {
         case "slow":   return 2.5
@@ -127,44 +124,38 @@ class TextInjector {
     }
 
     private func typeAsKeystrokes(text: String, completion: @escaping (_ pasteSucceeded: Bool) -> Void) {
-        let cps = charsPerSecond(for: settings?.naturalModeSpeed ?? "normal")
+        let cps = charsPerSecond(for: settings.naturalModeSpeed)
         let baseDelay = 1.0 / cps
 
-        // Private state — isolated from the user's hardware keyboard. Without
-        // this, hardware modifier state (Caps Lock, held Shift from a hotkey
-        // release, etc.) bleeds into our synthesized events and corrupts
-        // characters: comma becomes `<`, apostrophe becomes `"`, lowercase
-        // letters flip to uppercase under Caps Lock, and so on.
-        let source = CGEventSource(stateID: .privateState)
-        guard source != nil else {
+        // Private state isolates synthesized events from the user's hardware
+        // keyboard. Without this, ambient modifier state (Caps Lock, residual
+        // Shift from the hotkey release) bleeds in and corrupts output:
+        // `,` → `<`, `'` → `"`, lowercase flips to uppercase under Caps Lock.
+        guard let source = CGEventSource(stateID: .privateState) else {
             wLog("Natural Mode: failed to create CGEventSource — falling back to paste")
             pasteViaClipboard(text: text, completion: completion)
             return
         }
 
-        // Esc-to-abort. Reset the flag, install global+local keyDown monitors
-        // that flip it on Esc (keyCode 53), tear them down when typing exits.
-        // Local monitor swallows the Esc so it doesn't also reach the focused
-        // app; global monitor only observes (NSEvent can't consume cross-app).
         setCancelTyping(false)
         var globalMonitor: Any?
         var localMonitor: Any?
+        // Local monitor swallows Esc inside our app; the global monitor can
+        // only observe — Esc still reaches the focused target app.
         DispatchQueue.main.sync {
             globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                if event.keyCode == 53 { self?.setCancelTyping(true) }
+                if Int(event.keyCode) == kVK_Escape { self?.setCancelTyping(true) }
             }
             localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                if event.keyCode == 53 {
+                if Int(event.keyCode) == kVK_Escape {
                     self?.setCancelTyping(true)
                     return nil
                 }
                 return event
             }
+            // TIS asserts main-thread; build/refresh while we're already here.
+            self.ensureLayoutMap()
         }
-
-        // TIS APIs assert main-thread; build/refresh map there, then type
-        // from the background queue.
-        DispatchQueue.main.sync { self.ensureLayoutMap() }
         wLog("Natural Mode typing \(text.count) chars at \(cps) cps (layout map: \(layoutMap.count) entries)")
 
         var typed = 0
@@ -175,7 +166,7 @@ class TextInjector {
             }
             postCharacter(ch, source: source)
             typed += 1
-            // ±40% jitter so timing doesn't look mechanical
+            // Jitter so timing doesn't look mechanical.
             let jitter = Double.random(in: 0.6...1.4)
             Thread.sleep(forTimeInterval: baseDelay * jitter)
         }
@@ -188,26 +179,20 @@ class TextInjector {
         completion(true)
     }
 
-    /// Post a single character as a real keystroke. For characters present on
-    /// the current keyboard layout, this uses the actual virtual key code +
-    /// modifier flags — indistinguishable from a real keypress to anything
-    /// observing CGEventTap or NSEvent.keyDown. Falls back to unicode string
-    /// injection only for characters with no key on the current layout
-    /// (emoji, CJK on a Latin layout, etc.).
-    private func postCharacter(_ ch: Character, source: CGEventSource?) {
-        // Newlines: Shift+Return (vk 36 + shift). Bare Return submits in most
-        // chat apps (Slack, Discord, ChatGPT, Claude Code's prompt, etc.) and
-        // executes in shells, so dictating a newline mid-message would send
-        // the message early. Shift+Return is the "newline without submit"
-        // convention in those apps. Raw shells (Terminal.app, bash/zsh) do
-        // treat the two the same and will still submit either way.
+    /// Falls back to unicode string injection only for characters with no key
+    /// on the current layout (e.g. emoji, CJK on a Latin layout).
+    private func postCharacter(_ ch: Character, source: CGEventSource) {
+        // Bare Return submits in most chat apps (Slack, Discord, ChatGPT,
+        // Claude Code's prompt) and executes in shells, so dictating a
+        // newline would send the message early. Shift+Return is the
+        // "newline without submit" convention. Raw shells still submit on
+        // either form — that's a known limitation.
         if ch == "\n" {
-            postKey(virtualKey: 36, flags: [.maskShift], source: source)
+            postKey(virtualKey: UInt16(kVK_Return), flags: [.maskShift], source: source)
             return
         }
-        // Tabs: real Tab key (vk 48)
         if ch == "\t" {
-            postKey(virtualKey: 48, flags: [], source: source)
+            postKey(virtualKey: UInt16(kVK_Tab), flags: [], source: source)
             return
         }
         if let mapped = layoutMap[ch] {
@@ -217,28 +202,23 @@ class TextInjector {
         }
     }
 
-    private func postKey(virtualKey: UInt16, flags: CGEventFlags, source: CGEventSource?) {
+    private func postKey(virtualKey: UInt16, flags: CGEventFlags, source: CGEventSource) {
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: false) else { return }
-        // Always pin event flags to exactly what the layout map says, even
-        // when empty. Skipping this for empty flags lets ambient modifier
-        // state (Caps Lock, residual shift from the dictation hotkey, etc.)
-        // ride along and corrupt punctuation: `,` → `<`, `'` → `"`.
+        // Pin flags unconditionally; otherwise ambient modifier state rides
+        // along and corrupts punctuation (`,` → `<`, `'` → `"`).
         down.flags = flags
         up.flags = flags
         down.post(tap: .cghidEventTap)
-        // Real key presses have non-zero hold time. 30-80ms looks human and
-        // ensures fast-key detectors register a press, not a glitch.
+        // 30-80ms hold so events register as a press, not a glitch.
         Thread.sleep(forTimeInterval: Double.random(in: 0.030...0.080))
         up.post(tap: .cghidEventTap)
     }
 
-    private func postUnicodeFallback(_ ch: Character, source: CGEventSource?) {
+    private func postUnicodeFallback(_ ch: Character, source: CGEventSource) {
         let utf16 = Array(String(ch).utf16)
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else { return }
-        // Same reason as postKey: pin flags so ambient modifier state can't
-        // ride along and turn the unicode injection into something else.
         down.flags = []
         up.flags = []
         utf16.withUnsafeBufferPointer { buf in
@@ -252,10 +232,9 @@ class TextInjector {
         up.post(tap: .cghidEventTap)
     }
 
-    /// Build (or rebuild if layout changed) a reverse map from each character
-    /// reachable on the current keyboard layout to its (virtualKey, flags).
-    /// Iterates all virtual keys × every relevant modifier combo and asks
-    /// `UCKeyTranslate` what character they produce on the user's layout.
+    /// Reverse-maps every character reachable on the current keyboard layout
+    /// to its (virtualKey, flags) by iterating virtual keys × modifier combos
+    /// through `UCKeyTranslate`.
     private func ensureLayoutMap() {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return }
         let idPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID)
@@ -267,11 +246,13 @@ class TextInjector {
             return
         }
         let layoutData = Unmanaged<CFData>.fromOpaque(layoutDataPtr).takeUnretainedValue()
-        let bytes = CFDataGetBytePtr(layoutData)
-        let keyboardLayout = UnsafeRawPointer(bytes!).assumingMemoryBound(to: UCKeyboardLayout.self)
+        guard let bytes = CFDataGetBytePtr(layoutData) else {
+            wLog("Natural Mode: empty keyboard layout data")
+            return
+        }
+        let keyboardLayout = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
 
-        // (UCKeyTranslate modifier key state, CGEvent flags) — cmd is omitted
-        // intentionally because it suppresses character generation.
+        // Cmd is omitted: it suppresses character generation in UCKeyTranslate.
         let modCombos: [(UInt32, CGEventFlags)] = [
             (0,                                                    []),
             (UInt32(shiftKey >> 8),                                .maskShift),

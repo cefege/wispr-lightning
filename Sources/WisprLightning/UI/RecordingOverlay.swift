@@ -172,24 +172,18 @@ class RecordingOverlay {
     }
 
     func showProcessing() {
-        stopPulsing()
-        warningState = 0
-        effectView?.layer?.backgroundColor = nil
-        timeLabel?.isHidden = true
-        dotView?.isHidden = true
-        spinner?.isHidden = false
-        spinner?.startAnimation(nil)
-        mainLabel?.stringValue = "Processing"
-        resizePanel(width: 145)
-        panel?.orderFront(nil)
+        showSpinner(label: "Processing", width: 145)
     }
 
     /// Shown while text is being injected into the focused app — fast for the
-    /// clipboard path, several seconds in Natural Mode at slow speed. Always
-    /// call before kicking off a TextInjector.inject so any prior state
-    /// (Retrying yellow, processing spinner, etc.) is cleared and the pill
-    /// reflects what's actually happening on screen.
+    /// clipboard path, several seconds in Natural Mode at slow speed. Call
+    /// before each `TextInjector.inject` so prior state (Retrying yellow,
+    /// error buttons) is cleared.
     func showInserting() {
+        showSpinner(label: "Inserting…", width: 145)
+    }
+
+    private func showSpinner(label: String, width: CGFloat) {
         stopPulsing()
         warningState = 0
         effectView?.layer?.backgroundColor = nil
@@ -200,8 +194,8 @@ class RecordingOverlay {
         dismissButton?.isHidden = true
         spinner?.isHidden = false
         spinner?.startAnimation(nil)
-        mainLabel?.stringValue = "Inserting…"
-        resizePanel(width: 145)
+        mainLabel?.stringValue = label
+        resizePanel(width: width)
         panel?.orderFront(nil)
     }
 
