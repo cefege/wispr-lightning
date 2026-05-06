@@ -12,8 +12,26 @@ class TextInjector {
     private var layoutMap: [Character: (keyCode: UInt16, flags: CGEventFlags)] = [:]
     private var layoutMapSourceID: String?
 
+    /// Cancel flag for Natural Mode. Flipped to `true` from the main thread by
+    /// the Escape-key NSEvent monitor; checked between characters by the typing
+    /// loop on `injectionQueue`. Lock keeps the read/write race-free.
+    private let cancelLock = NSLock()
+    private var _cancelTyping = false
+
     init(settings: AppSettings? = nil) {
         self.settings = settings
+    }
+
+    private func setCancelTyping(_ value: Bool) {
+        cancelLock.lock()
+        defer { cancelLock.unlock() }
+        _cancelTyping = value
+    }
+
+    private func isCancelTyping() -> Bool {
+        cancelLock.lock()
+        defer { cancelLock.unlock() }
+        return _cancelTyping
     }
 
     /// Read the currently selected text via Accessibility API.
@@ -124,16 +142,47 @@ class TextInjector {
             return
         }
 
+        // Esc-to-abort. Reset the flag, install global+local keyDown monitors
+        // that flip it on Esc (keyCode 53), tear them down when typing exits.
+        // Local monitor swallows the Esc so it doesn't also reach the focused
+        // app; global monitor only observes (NSEvent can't consume cross-app).
+        setCancelTyping(false)
+        var globalMonitor: Any?
+        var localMonitor: Any?
+        DispatchQueue.main.sync {
+            globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                if event.keyCode == 53 { self?.setCancelTyping(true) }
+            }
+            localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                if event.keyCode == 53 {
+                    self?.setCancelTyping(true)
+                    return nil
+                }
+                return event
+            }
+        }
+
         // TIS APIs assert main-thread; build/refresh map there, then type
         // from the background queue.
         DispatchQueue.main.sync { self.ensureLayoutMap() }
         wLog("Natural Mode typing \(text.count) chars at \(cps) cps (layout map: \(layoutMap.count) entries)")
 
+        var typed = 0
         for ch in text {
+            if isCancelTyping() {
+                wLog("Natural Mode: cancelled by Esc after \(typed)/\(text.count) chars")
+                break
+            }
             postCharacter(ch, source: source)
+            typed += 1
             // ±40% jitter so timing doesn't look mechanical
             let jitter = Double.random(in: 0.6...1.4)
             Thread.sleep(forTimeInterval: baseDelay * jitter)
+        }
+
+        DispatchQueue.main.async {
+            if let g = globalMonitor { NSEvent.removeMonitor(g) }
+            if let l = localMonitor { NSEvent.removeMonitor(l) }
         }
 
         completion(true)
