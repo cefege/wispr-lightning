@@ -112,7 +112,12 @@ class TextInjector {
         let cps = charsPerSecond(for: settings?.naturalModeSpeed ?? "normal")
         let baseDelay = 1.0 / cps
 
-        let source = CGEventSource(stateID: .hidSystemState)
+        // Private state — isolated from the user's hardware keyboard. Without
+        // this, hardware modifier state (Caps Lock, held Shift from a hotkey
+        // release, etc.) bleeds into our synthesized events and corrupts
+        // characters: comma becomes `<`, apostrophe becomes `"`, lowercase
+        // letters flip to uppercase under Caps Lock, and so on.
+        let source = CGEventSource(stateID: .privateState)
         guard source != nil else {
             wLog("Natural Mode: failed to create CGEventSource — falling back to paste")
             pasteViaClipboard(text: text, completion: completion)
@@ -161,10 +166,12 @@ class TextInjector {
     private func postKey(virtualKey: UInt16, flags: CGEventFlags, source: CGEventSource?) {
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: virtualKey, keyDown: false) else { return }
-        if !flags.isEmpty {
-            down.flags = flags
-            up.flags = flags
-        }
+        // Always pin event flags to exactly what the layout map says, even
+        // when empty. Skipping this for empty flags lets ambient modifier
+        // state (Caps Lock, residual shift from the dictation hotkey, etc.)
+        // ride along and corrupt punctuation: `,` → `<`, `'` → `"`.
+        down.flags = flags
+        up.flags = flags
         down.post(tap: .cghidEventTap)
         // Real key presses have non-zero hold time. 30-80ms looks human and
         // ensures fast-key detectors register a press, not a glitch.
@@ -176,6 +183,10 @@ class TextInjector {
         let utf16 = Array(String(ch).utf16)
         guard let down = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true),
               let up = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) else { return }
+        // Same reason as postKey: pin flags so ambient modifier state can't
+        // ride along and turn the unicode injection into something else.
+        down.flags = []
+        up.flags = []
         utf16.withUnsafeBufferPointer { buf in
             if let base = buf.baseAddress {
                 down.keyboardSetUnicodeString(stringLength: buf.count, unicodeString: base)
