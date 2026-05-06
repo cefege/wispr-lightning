@@ -184,6 +184,27 @@ class RecordingOverlay {
         panel?.orderFront(nil)
     }
 
+    /// Shown while text is being injected into the focused app — fast for the
+    /// clipboard path, several seconds in Natural Mode at slow speed. Always
+    /// call before kicking off a TextInjector.inject so any prior state
+    /// (Retrying yellow, processing spinner, etc.) is cleared and the pill
+    /// reflects what's actually happening on screen.
+    func showInserting() {
+        stopPulsing()
+        warningState = 0
+        effectView?.layer?.backgroundColor = nil
+        timeLabel?.isHidden = true
+        dotView?.isHidden = true
+        retryButton?.isHidden = true
+        saveButton?.isHidden = true
+        dismissButton?.isHidden = true
+        spinner?.isHidden = false
+        spinner?.startAnimation(nil)
+        mainLabel?.stringValue = "Inserting…"
+        resizePanel(width: 145)
+        panel?.orderFront(nil)
+    }
+
     func showError(message: String) {
         configureErrorState(message: message, width: 180)
         errorDismissTimer?.invalidate()

@@ -532,6 +532,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             // Auto-polish will inject the final text — skip raw injection
                             // Keep overlay in Processing state while polish runs
                         } else {
+                            self.recordingOverlay.showInserting()
                             self.textInjector.inject(text: displayText) { _ in
                                 DispatchQueue.main.async { self.recordingOverlay.hide() }
                             }
@@ -855,6 +856,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     case .success(let polishResult):
                         wLog("Polish complete: \(polishResult.polishedText.count) chars in \(String(format: "%.1f", polishResult.processingTime))s")
 
+                        self.recordingOverlay.showInserting()
                         self.textInjector.inject(text: polishResult.polishedText) { _ in
                             // Restore the original clipboard (before our Cmd+C), after TextInjector's own restore
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -913,6 +915,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 switch result {
                 case .success(let polishResult):
                     DispatchQueue.main.async {
+                        self.recordingOverlay.showInserting()
                         self.textInjector.inject(text: polishResult.polishedText) { _ in
                             DispatchQueue.main.async { self.recordingOverlay.hide() }
                         }
@@ -922,6 +925,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 case .failure(let error):
                     wLog("Auto-polish failed: \(error.userMessage) — injecting original text")
                     DispatchQueue.main.async {
+                        self.recordingOverlay.showInserting()
                         self.textInjector.inject(text: text) { _ in
                             DispatchQueue.main.async { self.recordingOverlay.hide() }
                         }
