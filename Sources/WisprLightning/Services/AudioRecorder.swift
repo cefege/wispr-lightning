@@ -19,6 +19,11 @@ class AudioRecorder {
     private var cachedDeviceID: AudioDeviceID?
     private var cachedDeviceUID: String?
 
+    /// Called from the audio capture thread (NOT main) once per buffer with a
+    /// 0.0–1.0 normalized RMS level. UI consumers must hop to the main queue.
+    /// Set to nil when not recording to avoid keeping references alive.
+    var onLevelUpdate: ((Float) -> Void)?
+
     private var engineConfigObserver: NSObjectProtocol?
 
     init(settings: AppSettings) {
@@ -157,6 +162,10 @@ class AudioRecorder {
         inputNode.installTap(onBus: 0, bufferSize: bufferSize, format: hwFormat) { [weak self] buffer, _ in
             guard let self = self, self.isRecording else { return }
             self.processBuffer(buffer, from: hwFormat, to: targetFormat)
+            if let cb = self.onLevelUpdate {
+                let level = AudioRecorder.computeNormalizedLevel(from: buffer)
+                cb(level)
+            }
         }
         try audioEngine.start()
     }
@@ -262,6 +271,38 @@ class AudioRecorder {
             packetsLock.unlock()
             offset += chunkSize
         }
+    }
+
+    /// Compute a 0.0–1.0 normalized level from a PCM buffer using RMS, then
+    /// map through a log curve so quiet speech reads as a visible signal.
+    /// Handles both Float32 and Int16 buffers; returns 0 for unsupported formats.
+    private static func computeNormalizedLevel(from buffer: AVAudioPCMBuffer) -> Float {
+        let frameLength = Int(buffer.frameLength)
+        guard frameLength > 0 else { return 0 }
+
+        var sumSquares: Float = 0
+        if let floatPtr = buffer.floatChannelData?[0] {
+            for i in 0..<frameLength {
+                let s = floatPtr[i]
+                sumSquares += s * s
+            }
+        } else if let int16Ptr = buffer.int16ChannelData?[0] {
+            let scale: Float = 1.0 / 32768.0
+            for i in 0..<frameLength {
+                let s = Float(int16Ptr[i]) * scale
+                sumSquares += s * s
+            }
+        } else {
+            return 0
+        }
+
+        let rms = sqrtf(sumSquares / Float(frameLength))
+        // Map RMS (typical speech ~0.01–0.2) to 0–1 via a log curve.
+        // -60 dBFS → 0, 0 dBFS → 1.
+        guard rms > 0 else { return 0 }
+        let db = 20.0 * log10f(rms)
+        let clamped = max(-60.0, min(0.0, db))
+        return (clamped + 60.0) / 60.0
     }
 
     func cleanup() {

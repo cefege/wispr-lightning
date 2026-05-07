@@ -16,6 +16,9 @@ class RecordingOverlay {
     private var onSaveAction: (() -> Void)?
     private var onDismissAction: (() -> Void)?
     private var currentPanelWidth: CGFloat = 120
+    private var levelRing: CALayer?
+    private var levelRingDisplayedLevel: Float = 0
+    private var levelLastUpdate: Date?
 
     /// Call at app launch to build the panel before the first keypress.
     func prewarm() {
@@ -43,6 +46,7 @@ class RecordingOverlay {
             dotView?.layer?.backgroundColor = Theme.Colors.error.cgColor
             mainLabel?.stringValue = "Listening"
             currentPanelWidth = 0  // force resize to reposition after any state
+            resetLevelRing()
             resizePanel(width: 120)
             panel?.orderFront(nil)
             startPulsing()
@@ -90,6 +94,17 @@ class RecordingOverlay {
         dot.layer?.cornerRadius = 5
         dot.setSize(width: 10, height: 10)
         self.dotView = dot
+
+        // Ring layer behind the dot — expands with audio level. Hidden until levels arrive.
+        let ring = CALayer()
+        ring.frame = CGRect(x: -3, y: -3, width: 16, height: 16)
+        ring.cornerRadius = 8
+        ring.borderWidth = 1.5
+        ring.borderColor = Theme.Colors.error.withAlphaComponent(0.5).cgColor
+        ring.backgroundColor = NSColor.clear.cgColor
+        ring.opacity = 0
+        dot.layer?.insertSublayer(ring, at: 0)
+        self.levelRing = ring
 
         let spin = NSProgressIndicator()
         spin.style = .spinning
@@ -149,6 +164,7 @@ class RecordingOverlay {
         errorDismissTimer?.invalidate()
         errorDismissTimer = nil
         stopPulsing()
+        resetLevelRing()
         spinner?.stopAnimation(nil)
         spinner?.isHidden = true
         dotView?.isHidden = false
@@ -185,6 +201,7 @@ class RecordingOverlay {
 
     private func showSpinner(label: String, width: CGFloat) {
         stopPulsing()
+        resetLevelRing()
         warningState = 0
         effectView?.layer?.backgroundColor = nil
         timeLabel?.isHidden = true
@@ -252,6 +269,7 @@ class RecordingOverlay {
 
     func showRetrying(attempt: Int, maxAttempts: Int) {
         stopPulsing()
+        resetLevelRing()
         dotView?.isHidden = true
         retryButton?.isHidden = true
         saveButton?.isHidden = true
@@ -280,6 +298,8 @@ class RecordingOverlay {
     }
 
     private func configureErrorState(message: String, width: CGFloat) {
+        stopPulsing()
+        resetLevelRing()
         spinner?.stopAnimation(nil)
         spinner?.isHidden = true
         dotView?.isHidden = true
@@ -308,6 +328,43 @@ class RecordingOverlay {
         frame.origin.x = screenFrame.midX - width / 2
         frame.origin.y = screenFrame.minY + 50
         panel.setFrame(frame, display: true)
+    }
+
+    /// Update the ring around the dot to reflect a 0.0–1.0 audio level.
+    /// While levels are flowing, suspend the opacity pulse so the two animations
+    /// don't fight. No-op when the dot is hidden (Processing/Error/Retrying).
+    func updateAudioLevel(_ level: Float) {
+        guard let dot = dotView, !dot.isHidden, let ring = levelRing else { return }
+
+        // First level update after a quiet period: stop the opacity pulse.
+        if levelLastUpdate == nil {
+            stopPulsing()
+        }
+        levelLastUpdate = Date()
+
+        // Smooth toward the new level so the ring doesn't jitter at tap rate (~25 Hz).
+        let clamped = max(0, min(1, level))
+        let smoothed = levelRingDisplayedLevel * 0.6 + clamped * 0.4
+        levelRingDisplayedLevel = smoothed
+
+        // Map 0–1 to 1.0×–1.6× scale and 0.0–0.7 opacity.
+        let scale = 1.0 + CGFloat(smoothed) * 0.6
+        let opacity = Float(smoothed) * 0.7
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.05)
+        CATransaction.setDisableActions(false)
+        ring.transform = CATransform3DMakeScale(scale, scale, 1)
+        ring.opacity = opacity
+        CATransaction.commit()
+    }
+
+    private func resetLevelRing() {
+        levelRing?.removeAllAnimations()
+        levelRing?.opacity = 0
+        levelRing?.transform = CATransform3DIdentity
+        levelRingDisplayedLevel = 0
+        levelLastUpdate = nil
     }
 
     private func startPulsing() {

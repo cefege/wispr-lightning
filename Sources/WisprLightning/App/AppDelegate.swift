@@ -281,6 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         recordingStartTime = nil
         hotkeyListener.resetState()
 
+        audioRecorder.onLevelUpdate = nil
         _ = audioRecorder.stop() // discard packets
         transcriptionClient.cancelPrewarmedConnection()
         clearPendingTranscription()
@@ -351,6 +352,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         recordingStartTime = Date()
+
+        // Pipe mic level to the pill. Tap fires on a background queue.
+        audioRecorder.onLevelUpdate = { [weak self] level in
+            DispatchQueue.main.async {
+                self?.recordingOverlay.updateAudioLevel(level)
+            }
+        }
 
         // Pause music in background — AppleScript calls are slow
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -444,6 +452,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let elapsedRecordingTime = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
         recordingStartTime = nil
 
+        audioRecorder.onLevelUpdate = nil
         let packets = audioRecorder.stop()
         soundManager.playStop()
         statusBarController.setRecording(false)
