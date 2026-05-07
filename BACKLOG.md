@@ -18,7 +18,7 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
 - **Severity:** medium
 - **Evidence:** `useAccessibilityContext: Bool = true` is the default in `Sources/WisprLightning/Models/Settings.swift:20`, and the README advertises context-aware formatting. But `WisprLightning.log` shows `AX context: none` on every single recording in the captured window. The log line is at `App/AppDelegate.swift:368`. The intended feature ("dictated text matches the style of what you're writing in") is silently disabled in practice.
 - **Scope:** `App/AppDelegate.swift` (the call site) and `Services/AppInfoDetector.swift` (likely where AX text is supposed to be read). 1–2 files, ~50 LOC to investigate and fix the AX query.
-- **Status:** open
+- **Status:** wontfix — same AX limitation as B-001's verifyPaste. `kAXValueAttribute` is unset/non-string in most modern apps, so the query is effectively dead. A real fix needs either an AX hierarchy walk with per-bundle-ID heuristics or a pivot to OCR-only context. Documented in CLAUDE.md so the loop doesn't re-propose it.
 
 ## B-003 — WebSocket drops on recordings longer than ~90 seconds
 

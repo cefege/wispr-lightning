@@ -47,6 +47,7 @@ These are things the codebase looks like it does for a reason. Don't undo them w
 - **Pill state must be reset before each `TextInjector.inject` call.** Call `recordingOverlay.showInserting()` first; otherwise prior states (Retrying yellow, error buttons) bleed through. There are four inject call sites in `AppDelegate.swift`.
 - **First-letter capitalization is the backend AI formatter, not Natural Mode.** If the user reports "it's capitalizing my first word", that's the transcription pipeline applying formatting; don't go looking in `TextInjector`.
 - **`build-app.sh` may still output as "Wispr Lite"** (legacy name). Renaming is its own backlog item, not a side-effect of unrelated work.
+- **AX context is reliably empty.** `TextInjector.readFocusedElementText()` reads `kAXValueAttribute` on the focused element. That attribute is unset or non-string in most modern apps (Slack, Cursor, Claude Code, terminals, web chat composers, document editors), so the runtime log shows `AX context: none` essentially always. This is the same root cause as the dropped paste verification. Don't treat it as a small bug — fixing it well needs either an AX hierarchy walk with per-bundle-ID heuristics or a pivot to OCR-only context. `useAccessibilityContext` defaulting to `true` is currently aspirational.
 
 ## Guidance for Claude
 
