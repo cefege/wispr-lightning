@@ -8,8 +8,14 @@ class TranscriptionClient {
     private let prewarmLock = NSLock()
     /// Max packets per WebSocket append message (~20 seconds of audio, ~800KB encoded)
     private static let chunkSize = 500
+    /// Keepalive ping interval. Well under typical 60s NAT / load-balancer idle timeouts
+    /// so the socket stays open during long recordings (B-003: 90s recordings dropped).
+    private static let pingInterval: TimeInterval = 20.0
     private var cachedEncoding: (packetCount: Int, prepared: PreparedAudio)?
     private let encodingQueue = DispatchQueue(label: "com.wisprlightning.encode", qos: .userInitiated)
+    /// Tracks pinger work items so we can stop pinging when a task is handed off, cancelled, or closed.
+    private var pingWorkItems: [ObjectIdentifier: DispatchWorkItem] = [:]
+    private let pingLock = NSLock()
 
     private struct PreparedAudio {
         let encodedPackets: [String]
@@ -33,7 +39,50 @@ class TranscriptionClient {
         let task = URLSession.shared.webSocketTask(with: request)
         task.maximumMessageSize = 10 * 1024 * 1024 // 10MB receive buffer
         task.resume()
+        startPinging(task)
         return task
+    }
+
+    /// Schedules a recurring WebSocket ping every `pingInterval` seconds while the task is open.
+    /// Stops automatically once the task leaves the `.running` state or `stopPinging` is called.
+    /// `sendPing` errors are logged but otherwise swallowed — by then the socket is already closed
+    /// and the next send/receive will surface the real error to the caller.
+    private func startPinging(_ task: URLSessionWebSocketTask) {
+        let key = ObjectIdentifier(task)
+        var work: DispatchWorkItem!
+        work = DispatchWorkItem { [weak self, weak task] in
+            guard let self = self, let task = task else { return }
+            // Stop if the task is no longer running, or if it's been swapped out.
+            guard task.state == .running else {
+                self.stopPinging(task)
+                return
+            }
+            self.pingLock.lock()
+            let stillTracked = self.pingWorkItems[key] === work
+            self.pingLock.unlock()
+            guard stillTracked else { return }
+
+            task.sendPing { error in
+                if let error = error {
+                    wLogVerbose("WS ping failed: \(error.localizedDescription)")
+                }
+            }
+            // Re-arm. Even if this ping failed, future ones may succeed if the socket recovers;
+            // if it's truly dead, the .running state check at the top will end the loop.
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.pingInterval, execute: work)
+        }
+        pingLock.lock()
+        pingWorkItems[key] = work
+        pingLock.unlock()
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.pingInterval, execute: work)
+    }
+
+    private func stopPinging(_ task: URLSessionWebSocketTask) {
+        let key = ObjectIdentifier(task)
+        pingLock.lock()
+        let work = pingWorkItems.removeValue(forKey: key)
+        pingLock.unlock()
+        work?.cancel()
     }
 
     /// Start TCP+TLS handshake early so it's ready when audio finishes
@@ -59,7 +108,10 @@ class TranscriptionClient {
         let task = prewarmedTask
         prewarmedTask = nil
         prewarmLock.unlock()
-        task?.cancel(with: .normalClosure, reason: nil)
+        if let task = task {
+            stopPinging(task)
+            task.cancel(with: .normalClosure, reason: nil)
+        }
     }
 
     func transcribe(packets: [Data], appInfo: [String: String], ocrContext: [String] = [], axContext: [String] = [], completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
@@ -111,6 +163,7 @@ class TranscriptionClient {
         } else {
             if let prewarmed = prewarmed {
                 wLog("Prewarmed connection stale (state: \(prewarmed.state.rawValue)), creating fresh one")
+                stopPinging(prewarmed)
                 prewarmed.cancel(with: .normalClosure, reason: nil)
             }
             guard let newTask = createWebSocketTask() else {
@@ -169,6 +222,7 @@ class TranscriptionClient {
 
         guard let authData = try? JSONSerialization.data(withJSONObject: authMsg),
               let authString = String(data: authData, encoding: .utf8) else {
+            stopPinging(wsTask)
             wsTask.cancel(with: .internalServerError, reason: nil)
             safeComplete(.failure(.connectionFailed))
             return
@@ -227,11 +281,13 @@ class TranscriptionClient {
                         }
                     } else {
                         wLog("WebSocket auth failed — unexpected response")
+                        self.stopPinging(wsTask)
                         wsTask.cancel(with: .internalServerError, reason: nil)
                         safeComplete(.failure(.authFailed))
                     }
                 } else {
                     wLog("WebSocket auth failed — non-string message received")
+                    self.stopPinging(wsTask)
                     wsTask.cancel(with: .internalServerError, reason: nil)
                     safeComplete(.failure(.authFailed))
                 }
@@ -269,6 +325,7 @@ class TranscriptionClient {
 
     private func sendPreparedAudio(wsTask: URLSessionWebSocketTask, prepared: PreparedAudio?, packetCount: Int, transcriptUUID: String, completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
         guard let prepared = prepared else {
+            stopPinging(wsTask)
             wsTask.cancel(with: .internalServerError, reason: nil)
             completion(.failure(.connectionFailed))
             return
@@ -362,8 +419,9 @@ class TranscriptionClient {
 
         // Start timeout deadline — scales with recording duration
         let timeout = Self.responseTimeout(for: packetCount)
-        let timeoutWork = DispatchWorkItem {
+        let timeoutWork = DispatchWorkItem { [weak self] in
             NSLog("Wispr Lightning: WebSocket response timed out after %.0fs", timeout)
+            self?.stopPinging(wsTask)
             wsTask.cancel(with: .abnormalClosure, reason: nil)
             safeComplete(.failure(.timeout))
         }
@@ -408,6 +466,7 @@ class TranscriptionClient {
                                 duration: duration,
                                 numWords: wordCount
                             )
+                            self?.stopPinging(wsTask)
                             wsTask.cancel(with: .normalClosure, reason: nil)
                             if resultText.isEmpty {
                                 completion(.failure(.emptyResult))
@@ -419,6 +478,7 @@ class TranscriptionClient {
                     } else if status == "error" {
                         let errorDetail = json["error"] as? String ?? "unknown"
                         NSLog("Wispr Lightning: Server error: %@", errorDetail)
+                        self?.stopPinging(wsTask)
                         wsTask.cancel(with: .internalServerError, reason: nil)
                         completion(.failure(.serverError(errorDetail)))
                         return
