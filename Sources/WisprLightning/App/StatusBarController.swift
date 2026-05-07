@@ -7,6 +7,7 @@ class StatusBarController {
     private let historyStore: HistoryStore
     private let dictionaryStore: DictionaryStore
     private let notesStore: NotesStore
+    private let textInjector: TextInjector
     private var settingsWindowController: SettingsWindowController?
     private var lastTranscription: String?
     private var sessionObserver: NSObjectProtocol?
@@ -14,12 +15,13 @@ class StatusBarController {
     /// Wired by AppDelegate to flip HotkeyListener's pause state.
     var onTogglePause: (() -> Void)?
 
-    init(session: Session, settings: AppSettings, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore) {
+    init(session: Session, settings: AppSettings, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore, textInjector: TextInjector) {
         self.session = session
         self.settings = settings
         self.historyStore = historyStore
         self.dictionaryStore = dictionaryStore
         self.notesStore = notesStore
+        self.textInjector = textInjector
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
@@ -105,6 +107,14 @@ class StatusBarController {
             emptyItem.attributedTitle = NSAttributedString(string: "No recent dictation", attributes: attributes)
             menu.addItem(emptyItem)
         }
+
+        // Undo last dictation — posts Cmd+Z to the focused app.
+        // Disabled when there's nothing to undo; cleared after firing so we don't over-undo
+        // into the user's prior text on a second press.
+        let undoItem = NSMenuItem(title: "Undo last dictation", action: #selector(undoLastDictation), keyEquivalent: "")
+        undoItem.target = self
+        undoItem.isEnabled = !(lastTranscription?.isEmpty ?? true)
+        menu.addItem(undoItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -196,5 +206,15 @@ class StatusBarController {
         guard let text = lastTranscription, !text.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    @objc private func undoLastDictation() {
+        guard let text = lastTranscription, !text.isEmpty else { return }
+        textInjector.undoLastInjection()
+        // One-shot: clear so menu disables itself. Pressing undo twice would over-undo
+        // into whatever the user had before the dictation.
+        lastTranscription = nil
+        buildMenu()
+        wLog("Undo last dictation — \(text.count) chars")
     }
 }

@@ -336,4 +336,23 @@ class TextInjector {
         // and error UI. Trust the post.
         completion(true)
     }
+
+    /// Post Cmd+Z to the focused app to undo the last injection.
+    /// Best-effort: a single Cmd+Z usually undoes the entire pasted block (macOS treats one
+    /// paste as one undo unit), but typed Natural Mode output may need multiple presses.
+    /// Uses `.hidSystemState` like the paste path — Cmd+Z is a one-shot system shortcut,
+    /// not a Natural Mode character that needs `.privateState`.
+    func undoLastInjection() {
+        let source = CGEventSource(stateID: .hidSystemState)
+        guard let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 6, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 6, keyDown: false) else {
+            wLog("Failed to create Cmd+Z CGEvent — check Accessibility permissions")
+            return
+        }
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
+        wLog("Cmd+Z posted (undo last dictation)")
+    }
 }

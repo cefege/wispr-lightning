@@ -107,7 +107,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             settings: settings,
             historyStore: historyStore,
             dictionaryStore: dictionaryStore,
-            notesStore: notesStore
+            notesStore: notesStore,
+            textInjector: textInjector
         )
 
         recordingOverlay = RecordingOverlay()
