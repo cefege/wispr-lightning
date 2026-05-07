@@ -232,7 +232,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             wLog("Accessibility: trusted")
         }
 
-        wLog("Ready — press \(settings.hotkeyLabel) to start dictating")
+        wLog("Ready — press \(settings.hotkeyLabels.first ?? "Left Control") to start dictating")
 
         // Check for unsent recordings from a previous crash/failure
         recoverPendingAudio()

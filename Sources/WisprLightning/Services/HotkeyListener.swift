@@ -34,7 +34,7 @@ class HotkeyListener {
 
     private func rebuildHotkeySet() {
         let codes = settings.hotkeyKeyCodes
-        _hotkeySet = codes.isEmpty ? [settings.hotkeyKeyCode] : Set(codes)
+        _hotkeySet = codes.isEmpty ? [59] : Set(codes)
         _polishKeyCodes = Set(settings.polishHotkeyKeyCodes)
     }
 
@@ -73,16 +73,15 @@ class HotkeyListener {
         // OS dispatch, so it fires even when Universal Control routes the keypress
         // to another Mac. NSEvent global monitors fire only when the event was
         // actually dispatched to an app on this Mac, which is the behavior we want.
-        let labels = settings.hotkeyLabels.isEmpty ? [settings.hotkeyLabel] : settings.hotkeyLabels
+        let labels = settings.hotkeyLabels.isEmpty ? ["Left Control"] : settings.hotkeyLabels
         NSLog("Wispr Lightning: Hotkey listener active (press %@ to dictate)", labels.joined(separator: " or "))
     }
 
     func rebind(keyCode: UInt16) {
         removeMonitors()
-        settings.hotkeyKeyCode = keyCode
-        settings.hotkeyLabel = Self.keycodeLabels[keyCode] ?? "Key \(keyCode)"
+        let label = Self.keycodeLabels[keyCode] ?? "Key \(keyCode)"
         settings.hotkeyKeyCodes = [keyCode]
-        settings.hotkeyLabels = [settings.hotkeyLabel]
+        settings.hotkeyLabels = [label]
         settings.save()
         rebuildHotkeySet()
         installMonitors()

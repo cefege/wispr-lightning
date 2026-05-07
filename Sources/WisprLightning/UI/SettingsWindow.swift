@@ -1151,7 +1151,7 @@ class SettingsViewModel: ObservableObject {
         self.useScreenContext = settings.useScreenContext
         self.useAccessibilityContext = settings.useAccessibilityContext
         self.shareUsageData = settings.shareUsageData
-        self.hotkeyLabels = settings.hotkeyLabels.isEmpty ? [settings.hotkeyLabel] : settings.hotkeyLabels
+        self.hotkeyLabels = settings.hotkeyLabels.isEmpty ? ["Left Control"] : settings.hotkeyLabels
 
         // Polish
         self.polishEnabled = settings.polishEnabled
@@ -1289,8 +1289,6 @@ class SettingsViewModel: ObservableObject {
         labels.remove(at: index)
         settings.hotkeyKeyCodes = codes
         settings.hotkeyLabels = labels
-        settings.hotkeyKeyCode = codes[0]
-        settings.hotkeyLabel = labels[0]
         settings.save()
         hotkeyLabels = labels
     }
@@ -1330,8 +1328,6 @@ class SettingsViewModel: ObservableObject {
             labels.append(label)
             self.settings.hotkeyKeyCodes = codes
             self.settings.hotkeyLabels = labels
-            self.settings.hotkeyKeyCode = codes[0]
-            self.settings.hotkeyLabel = labels[0]
             self.settings.save()
             self.hotkeyLabels = labels
             self.stopCapturing()

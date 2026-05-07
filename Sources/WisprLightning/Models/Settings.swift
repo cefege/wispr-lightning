@@ -1,8 +1,9 @@
 import Foundation
 
 class AppSettings: Codable {
-    var hotkeyKeyCode: UInt16 = 59       // Left Ctrl (legacy single-key)
-    var hotkeyLabel: String = "Left Control"  // legacy single-key
+    // Deprecated — kept for Codable backward-compat. All readers use the array form.
+    var hotkeyKeyCode: UInt16 = 59
+    var hotkeyLabel: String = "Left Control"
     var hotkeyKeyCodes: [UInt16] = [59]
     var hotkeyLabels: [String] = ["Left Control"]
     var micDeviceUID: String? = nil       // nil = system default
@@ -76,6 +77,13 @@ class AppSettings: Codable {
             let settings = AppSettings()
             settings.save()
             return settings
+        }
+        // One-time migration: older settings files only carried the legacy
+        // single-key fields. Seed the array form from them so the rest of the
+        // app (which only reads the array) sees the user's previous binding.
+        if settings.hotkeyKeyCodes.isEmpty && settings.hotkeyKeyCode != 0 {
+            settings.hotkeyKeyCodes = [settings.hotkeyKeyCode]
+            settings.hotkeyLabels = [settings.hotkeyLabel]
         }
         return settings
     }
