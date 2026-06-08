@@ -31,10 +31,15 @@ final class OpenRouterProvider: DictationProvider {
         if let stored = SecretsStore.read(.openRouterAPIKey) { return stored }
         // Migration: if the key is still in Keychain from a prior build, pull
         // it once (may prompt), persist to SecretsStore, and remove from
-        // Keychain so we never prompt for it again.
+        // Keychain so we never prompt for it again. Only delete the Keychain
+        // copy if SecretsStore.write actually succeeded — otherwise we'd
+        // lose the user's key with nowhere to recover it from.
         if let migrated = KeychainStore.read(.openRouterAPIKey) {
-            SecretsStore.write(.openRouterAPIKey, migrated)
-            KeychainStore.delete(.openRouterAPIKey)
+            if SecretsStore.write(.openRouterAPIKey, migrated) {
+                KeychainStore.delete(.openRouterAPIKey)
+            } else {
+                wLog("OpenRouter: failed to migrate key to SecretsStore; leaving Keychain copy intact")
+            }
             return migrated
         }
         return nil

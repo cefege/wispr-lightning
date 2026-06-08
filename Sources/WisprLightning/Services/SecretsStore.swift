@@ -43,15 +43,30 @@ enum SecretsStore {
     static func write(_ key: Key, _ value: String?) -> Bool {
         loadIfNeeded()
         lock.lock()
-        var dict = cache ?? [:]
+        let previous = cache ?? [:]
+        var dict = previous
         if let value, !value.isEmpty {
             dict[key.rawValue] = value
         } else {
             dict.removeValue(forKey: key.rawValue)
         }
+        lock.unlock()
+
+        // Persist first, then update the cache — if the disk write fails we
+        // don't want the in-process cache to diverge from what the next
+        // launch's `loadIfNeeded()` will read off disk.
+        guard persist(dict) else {
+            // Restore cache to what's actually on disk so a future read
+            // doesn't return a value that was never saved.
+            lock.lock()
+            cache = previous
+            lock.unlock()
+            return false
+        }
+        lock.lock()
         cache = dict
         lock.unlock()
-        return persist(dict)
+        return true
     }
 
     @discardableResult
@@ -72,28 +87,31 @@ enum SecretsStore {
 
     private static func loadIfNeeded() {
         lock.lock()
-        let alreadyLoaded = cache != nil
-        lock.unlock()
-        if alreadyLoaded { return }
-
+        defer { lock.unlock() }
+        guard cache == nil else { return }
+        // I/O under the lock is fine — secrets.json is a few hundred bytes at
+        // most and read once per launch. Two threads racing here would
+        // otherwise each parse the file independently.
         let data = (try? Data(contentsOf: fileURL)) ?? Data()
-        let dict = (try? JSONSerialization.jsonObject(with: data) as? [String: String]) ?? [:]
-        lock.lock()
-        cache = dict
-        lock.unlock()
+        cache = (try? JSONSerialization.jsonObject(with: data) as? [String: String]) ?? [:]
     }
 
     private static func persist(_ dict: [String: String]) -> Bool {
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: .prettyPrinted) else {
             return false
         }
-        do {
-            try data.write(to: fileURL, options: .atomic)
-            // Restrict to owner only — same posture as session.json.
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
-            return true
-        } catch {
-            return false
+        // Create the file with 0600 from the start so the contents are never
+        // briefly world-readable. `Data.write(options:.atomic)` would use the
+        // user's default umask (usually 022 → 644) and a follow-up chmod is
+        // racy and silently fails.
+        let attrs: [FileAttributeKey: Any] = [.posixPermissions: NSNumber(value: 0o600)]
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            try? FileManager.default.removeItem(at: fileURL)
         }
+        let ok = FileManager.default.createFile(atPath: fileURL.path, contents: data, attributes: attrs)
+        if !ok {
+            wLog("SecretsStore: failed to write secrets file at \(fileURL.path)")
+        }
+        return ok
     }
 }

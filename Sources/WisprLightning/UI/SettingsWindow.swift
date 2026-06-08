@@ -934,9 +934,13 @@ private struct OpenRouterAccountPanel: View {
 
         HStack(spacing: 10) {
             Button("Save") {
-                vm.saveOpenRouterAPIKey()
-                testStatus = "Saved."
-                testIsError = false
+                if vm.saveOpenRouterAPIKey() {
+                    testStatus = "Saved."
+                    testIsError = false
+                } else {
+                    testStatus = "Save failed — couldn't write to secrets.json."
+                    testIsError = true
+                }
             }
             .disabled(vm.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
@@ -1661,11 +1665,13 @@ class SettingsViewModel: ObservableObject {
     /// Persists the OpenRouter API key. Triggered by the explicit Save button
     /// in the Accounts panel only. Empty input is treated as "keep the
     /// existing value" rather than "delete" so the user doesn't lose their
-    /// stored key by hitting Save with a blank field.
-    func saveOpenRouterAPIKey() {
+    /// stored key by hitting Save with a blank field. Returns the write
+    /// result so the UI can surface "Saved." vs "Save failed".
+    @discardableResult
+    func saveOpenRouterAPIKey() -> Bool {
         let trimmed = openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        SecretsStore.write(.openRouterAPIKey, trimmed)
+        guard !trimmed.isEmpty else { return false }
+        return SecretsStore.write(.openRouterAPIKey, trimmed)
     }
 
     /// Explicit destructive action — only called from a "Clear saved key"
