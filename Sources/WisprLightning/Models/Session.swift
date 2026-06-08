@@ -19,6 +19,13 @@ class Session {
         return true
     }
 
+    /// True when the user is signed in via the Wispr Flow OAuth flow.
+    /// Polish, AI formatting, and the Wispr Flow backend all require this.
+    /// Other vendors (OpenRouter, Claude Voice) authenticate independently.
+    var isWisprFlowAccount: Bool {
+        return isValid
+    }
+
     static let wisprFlowSessionURL: URL = {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Wispr Flow/session.json")

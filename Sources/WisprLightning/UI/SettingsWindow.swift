@@ -138,15 +138,21 @@ struct AllSettingsView: View {
         self._notesVM = StateObject(wrappedValue: NotesViewModel(notesStore: notesStore))
     }
 
-    private static let settingsGroup: [SettingsSection] = [.general, .dictation, .polish]
     private static let dataGroup: [SettingsSection] = [.history, .dictionary, .notes]
     private static let systemGroup: [SettingsSection] = [.privacy, .system]
+
+    /// Polish is a Wispr Flow-only feature; hide the tab entirely for other vendors.
+    private var settingsGroup: [SettingsSection] {
+        session.isWisprFlowAccount
+            ? [.general, .dictation, .polish]
+            : [.general, .dictation]
+    }
 
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedSection) {
                 Section {
-                    ForEach(Self.settingsGroup) { section in
+                    ForEach(settingsGroup) { section in
                         sidebarRow(section)
                     }
                 }

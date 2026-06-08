@@ -24,6 +24,11 @@ class AudioRecorder {
     /// Set to nil when not recording to avoid keeping references alive.
     var onLevelUpdate: ((Float) -> Void)?
 
+    /// Called from the audio capture thread (NOT main) for every 40ms PCM
+    /// packet captured during recording. The active `DictationProvider` feeds
+    /// these to its streaming or buffered transcription pipeline.
+    var onPacket: ((Data) -> Void)?
+
     private var engineConfigObserver: NSObjectProtocol?
 
     init(settings: AppSettings) {
@@ -269,6 +274,7 @@ class AudioRecorder {
             packetsLock.lock()
             packets.append(data)
             packetsLock.unlock()
+            onPacket?(data)
             offset += chunkSize
         }
     }

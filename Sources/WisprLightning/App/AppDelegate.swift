@@ -37,7 +37,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settings: AppSettings!
     private var dbManager: DatabaseManager!
     private var audioRecorder: AudioRecorder!
-    private var transcriptionClient: TranscriptionClient!
+    private var dictationProvider: DictationProvider!
     private var textInjector: TextInjector!
     private var hotkeyListener: HotkeyListener!
     private var historyStore: HistoryStore!
@@ -95,8 +95,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         polishStore = PolishStore(dbManager: dbManager)
         notesStore = NotesStore(dbManager: dbManager)
         audioRecorder = AudioRecorder(settings: settings)
-        transcriptionClient = TranscriptionClient(session: session, settings: settings)
-        transcriptionClient.dictionaryStore = dictionaryStore
+        dictationProvider = WisprFlowProvider(session: session, settings: settings)
+        dictationProvider.dictionaryStore = dictionaryStore
         polishService = PolishService(session: session, settings: settings)
         textInjector = TextInjector(settings: settings)
         soundManager = SoundManager(settings: settings)
@@ -159,6 +159,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotkeyListener = HotkeyListener(
             settings: settings,
+            session: session,
             onPress: { [weak self] in self?.onHotkeyPress() },
             onRelease: { [weak self] in self?.onHotkeyRelease() }
         )
@@ -283,8 +284,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyListener.resetState()
 
         audioRecorder.onLevelUpdate = nil
+        audioRecorder.onPacket = nil
         _ = audioRecorder.stop() // discard packets
-        transcriptionClient.cancelPrewarmedConnection()
+        dictationProvider.cancel()
         clearPendingTranscription()
 
         statusBarController.setRecording(false)
@@ -354,6 +356,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         recordingStartTime = Date()
 
+        // Begin a provider session and stream packets to it as they're captured.
+        // Wispr Flow buffers internally; streaming providers (e.g. Claude Voice)
+        // will send each packet over the wire as it arrives.
+        dictationProvider.start()
+        audioRecorder.onPacket = { [weak self] packet in
+            self?.dictationProvider.feed(packet: packet)
+        }
+
         // Pipe mic level to the pill. Tap fires on a background queue.
         audioRecorder.onLevelUpdate = { [weak self] level in
             DispatchQueue.main.async {
@@ -367,7 +377,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Pre-warm WebSocket connection (TCP+TLS handshake) during recording
-        transcriptionClient.prewarmConnection()
+        dictationProvider.prewarmConnection()
 
         // Capture accessibility context in background — AX API can be slow on some apps
         if settings.useAccessibilityContext {
@@ -454,12 +464,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         recordingStartTime = nil
 
         audioRecorder.onLevelUpdate = nil
+        audioRecorder.onPacket = nil
         let packets = audioRecorder.stop()
         soundManager.playStop()
         statusBarController.setRecording(false)
 
         guard packets.count >= 5 else {
-            transcriptionClient.cancelPrewarmedConnection()
+            dictationProvider.cancel()
             if packets.count == 0 && elapsedRecordingTime > 1.0 {
                 wLog("Recording captured 0 packets over \(String(format: "%.1f", elapsedRecordingTime))s — likely mic disconnected")
                 recordingOverlay.showError(message: "Mic not responding")
@@ -513,8 +524,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         let ocrContext = pendingOcrContext ?? []
         let axContext = pendingAxContext ?? []
+        let context = DictationContext(appInfo: appInfo, ocrContext: ocrContext, axContext: axContext)
 
-        transcriptionClient.transcribe(packets: packets, appInfo: appInfo, ocrContext: ocrContext, axContext: axContext) { [weak self] result in
+        // Retry path: re-prime the provider's internal buffer from the
+        // saved packet array (initial attempt already has them from `feed`).
+        if currentRetryAttempt > 0 {
+            dictationProvider.cancel()
+            dictationProvider.start()
+            for packet in packets {
+                dictationProvider.feed(packet: packet)
+            }
+        }
+
+        dictationProvider.stop(context: context) { [weak self] result in
             guard let self = self else { return }
 
             switch result {
@@ -537,7 +559,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         wLog("Injecting: \(String(displayText.prefix(80)))")
 
                         let activeInstructions = self.settings.activePolishInstructions
-                        if self.settings.autoPolish && self.settings.polishEnabled
+                        if self.session.isWisprFlowAccount && self.settings.autoPolish && self.settings.polishEnabled
                             && !activeInstructions.isEmpty {
                             // Auto-polish will inject the final text — skip raw injection
                             // Keep overlay in Processing state while polish runs
@@ -561,8 +583,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                             }
                         }
 
-                        // Auto-polish after dictation
-                        if self.settings.autoPolish && self.settings.polishEnabled {
+                        // Auto-polish after dictation (Wispr Flow only)
+                        if self.session.isWisprFlowAccount && self.settings.autoPolish && self.settings.polishEnabled {
                             self.autoPolishText(displayText)
                         }
                     } else {
@@ -585,7 +607,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     }
 
                     // Pre-warm connection during retry delay so TCP+TLS handshake overlaps with wait
-                    self.transcriptionClient.prewarmConnection()
+                    self.dictationProvider.prewarmConnection()
 
                     DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 1.5) { [weak self] in
                         self?.attemptTranscription()
@@ -622,10 +644,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func retryTranscription() {
-        currentRetryAttempt = 0
+        currentRetryAttempt = 1  // ensure attemptTranscription re-primes the buffer
         recordingOverlay.showProcessing()
         // Pre-warm connection so TCP+TLS handshake starts immediately
-        transcriptionClient.prewarmConnection()
+        dictationProvider.prewarmConnection()
         scheduleProcessingTimeout()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.attemptTranscription()
@@ -678,7 +700,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         pendingAxContext = nil
         currentRetryAttempt = 0
         isTranscribing = false
-        transcriptionClient.clearEncodingCache()
+        dictationProvider.clearEncodingCache()
     }
 
     /// Save audio as a playable WAV file to ~/Downloads.
@@ -807,6 +829,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Polish
 
     private func onPolishHotkeyPress() {
+        guard session.isWisprFlowAccount else {
+            wLog("Polish skipped — Wispr Flow account required")
+            return
+        }
         guard settings.polishEnabled else { return }
 
         let activeInstructions = settings.activePolishInstructions

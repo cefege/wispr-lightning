@@ -1,6 +1,12 @@
 import Foundation
 
-class TranscriptionClient {
+/// `DictationProvider` backed by Wispr Flow's WebSocket transcription API.
+///
+/// Internally buffers PCM packets fed via `feed(packet:)` and uploads them in
+/// one WebSocket session at `stop(context:completion:)` time. The WebSocket
+/// can be prewarmed during recording so TCP+TLS handshake overlaps with mic
+/// startup.
+class WisprFlowProvider: DictationProvider {
     private let session: Session
     private let settings: AppSettings
     var dictionaryStore: DictionaryStore?
@@ -17,6 +23,9 @@ class TranscriptionClient {
     private var pingWorkItems: [ObjectIdentifier: DispatchWorkItem] = [:]
     private let pingLock = NSLock()
 
+    private var bufferedPackets: [Data] = []
+    private let bufferLock = NSLock()
+
     private struct PreparedAudio {
         let encodedPackets: [String]
         let volumes: [Double]
@@ -31,6 +40,38 @@ class TranscriptionClient {
         self.session = session
         self.settings = settings
     }
+
+    // MARK: - DictationProvider lifecycle
+
+    func start() {
+        bufferLock.lock()
+        bufferedPackets.removeAll(keepingCapacity: true)
+        bufferLock.unlock()
+    }
+
+    func feed(packet: Data) {
+        bufferLock.lock()
+        bufferedPackets.append(packet)
+        bufferLock.unlock()
+    }
+
+    func stop(context: DictationContext,
+              completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
+        bufferLock.lock()
+        let packets = bufferedPackets
+        bufferedPackets.removeAll(keepingCapacity: false)
+        bufferLock.unlock()
+        transcribe(packets: packets, context: context, completion: completion)
+    }
+
+    func cancel() {
+        bufferLock.lock()
+        bufferedPackets.removeAll(keepingCapacity: false)
+        bufferLock.unlock()
+        cancelPrewarmedConnection()
+    }
+
+    // MARK: - Connection management
 
     private func createWebSocketTask() -> URLSessionWebSocketTask? {
         guard let url = URL(string: Constants.wsURL) else { return nil }
@@ -52,7 +93,6 @@ class TranscriptionClient {
         var work: DispatchWorkItem!
         work = DispatchWorkItem { [weak self, weak task] in
             guard let self = self, let task = task else { return }
-            // Stop if the task is no longer running, or if it's been swapped out.
             guard task.state == .running else {
                 self.stopPinging(task)
                 return
@@ -67,8 +107,6 @@ class TranscriptionClient {
                     wLogVerbose("WS ping failed: \(error.localizedDescription)")
                 }
             }
-            // Re-arm. Even if this ping failed, future ones may succeed if the socket recovers;
-            // if it's truly dead, the .running state check at the top will end the loop.
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + Self.pingInterval, execute: work)
         }
         pingLock.lock()
@@ -92,7 +130,6 @@ class TranscriptionClient {
         prewarmedTask = task
         prewarmLock.unlock()
 
-        // Proactively refresh token if expired, so it's ready when transcription starts
         if !session.isValid {
             session.refresh { success in
                 if !success {
@@ -102,7 +139,6 @@ class TranscriptionClient {
         }
     }
 
-    /// Cancel a prewarmed connection that won't be used (e.g. recording too short)
     func cancelPrewarmedConnection() {
         prewarmLock.lock()
         let task = prewarmedTask
@@ -114,13 +150,18 @@ class TranscriptionClient {
         }
     }
 
-    func transcribe(packets: [Data], appInfo: [String: String], ocrContext: [String] = [], axContext: [String] = [], completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
+    // MARK: - Transcription pipeline
+
+    /// Transcribe a packet array directly. Used by `stop()` after draining the
+    /// internal buffer; the prior call site in `AppDelegate` no longer needs it.
+    private func transcribe(packets: [Data],
+                            context: DictationContext,
+                            completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
         guard !packets.isEmpty else {
             completion(.failure(.emptyResult))
             return
         }
 
-        // Ensure valid token
         guard session.isValid else {
             NSLog("Wispr Lightning: Token expired, refreshing...")
             session.refresh { [weak self] success in
@@ -129,16 +170,17 @@ class TranscriptionClient {
                     completion(.failure(.authFailed))
                     return
                 }
-                self.performTranscription(packets: packets, appInfo: appInfo, ocrContext: ocrContext, axContext: axContext, completion: completion)
+                self.performTranscription(packets: packets, context: context, completion: completion)
             }
             return
         }
 
-        performTranscription(packets: packets, appInfo: appInfo, ocrContext: ocrContext, axContext: axContext, completion: completion)
+        performTranscription(packets: packets, context: context, completion: completion)
     }
 
-    private func performTranscription(packets: [Data], appInfo: [String: String], ocrContext: [String] = [], axContext: [String] = [], completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
-        // Guard against double-completion — send and receive error callbacks can both fire
+    private func performTranscription(packets: [Data],
+                                      context: DictationContext,
+                                      completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
         var completed = false
         let completionLock = NSLock()
         let safeComplete: (Result<TranscriptResult, TranscriptionError>) -> Void = { result in
@@ -152,7 +194,6 @@ class TranscriptionClient {
             completion(result)
         }
 
-        // Use prewarmed connection if available and still connected (TCP+TLS already done)
         let wsTask: URLSessionWebSocketTask
         prewarmLock.lock()
         let prewarmed = prewarmedTask
@@ -174,9 +215,9 @@ class TranscriptionClient {
         }
 
         let transcriptUUID = UUID().uuidString
+        let appInfo = context.appInfo
         let appType = (appInfo["type"] ?? "other").lowercased()
 
-        // 1. Send auth message
         let pipeline = settings.aiFormatting ? ["transcribe", "format"] : ["transcribe"]
         let authMsg: [String: Any] = [
             "type": "auth",
@@ -189,8 +230,8 @@ class TranscriptionClient {
                     "type": appType,
                     "url": appInfo["url"] ?? ""
                 ],
-                "ax_context": axContext,
-                "ocr_context": ocrContext,
+                "ax_context": context.axContext,
+                "ocr_context": context.ocrContext,
                 "dictionary_context": (dictionaryStore?.getVocabularyPhrases() ?? []) as Any,
                 "dictionary_replacements": (dictionaryStore?.getReplacements() ?? [:]) as Any,
                 "dictionary_snippets": (dictionaryStore?.getSnippets() ?? [:]).mapValues { [$0] } as Any,
@@ -216,7 +257,7 @@ class TranscriptionClient {
             "command_mode": settings.commandModeEnabled,
             "debug_mode": false,
             "use_staging_baseten": false,
-            "prefix_is_written": !axContext.isEmpty,
+            "prefix_is_written": !context.axContext.isEmpty,
             "hyperlink_on": settings.hyperlinkOn
         ]
 
@@ -228,7 +269,6 @@ class TranscriptionClient {
             return
         }
 
-        // Start encoding audio (reuse cache on retry, or encode in parallel with auth)
         var preparedAudio: PreparedAudio?
         var encodeGroup: DispatchGroup?
 
@@ -249,7 +289,6 @@ class TranscriptionClient {
 
         wLogVerbose("WS sending auth — token: \(String((session.accessToken ?? "").prefix(8)))..., app: \(appType), pipeline: \(pipeline.joined(separator: ","))")
 
-        // Send auth message
         wsTask.send(.string(authString)) { error in
             if let error = error {
                 NSLog("Wispr Lightning: WS auth send failed: %@", error.localizedDescription)
@@ -258,7 +297,6 @@ class TranscriptionClient {
             }
         }
 
-        // Receive auth response, then send audio
         wsTask.receive { [weak self] result in
             guard let self = self else { return }
             switch result {
@@ -396,7 +434,6 @@ class TranscriptionClient {
             if isFinal {
                 self.sendCommitAndReceive(wsTask: wsTask, totalPackets: totalPackets, transcriptUUID: transcriptUUID, completion: completion)
             } else {
-                // Send next chunk
                 self.sendNextChunk(wsTask: wsTask, prepared: prepared, offset: end, totalPackets: totalPackets, transcriptUUID: transcriptUUID, completion: completion)
             }
         }
@@ -417,7 +454,6 @@ class TranscriptionClient {
             completion(result)
         }
 
-        // Start timeout deadline — scales with recording duration
         let timeout = Self.responseTimeout(for: packetCount)
         let timeoutWork = DispatchWorkItem { [weak self] in
             NSLog("Wispr Lightning: WebSocket response timed out after %.0fs", timeout)
@@ -486,7 +522,6 @@ class TranscriptionClient {
                         NSLog("Wispr Lightning: Server info: %@", json["message"] as? String ?? "")
                     }
 
-                    // Continue receiving
                     self?.receiveResult(wsTask: wsTask, transcriptUUID: transcriptUUID, packetCount: packetCount, completion: completion)
                 }
             case .failure(let error):
@@ -504,7 +539,6 @@ class TranscriptionClient {
 
     private func ascii85Encode(_ data: Data) -> String {
         let byteCount = data.count
-        // Pre-allocate output buffer: each 4-byte group becomes at most 5 bytes
         var output = [UInt8]()
         output.reserveCapacity((byteCount / 4 + 1) * 5)
 

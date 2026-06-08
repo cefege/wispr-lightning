@@ -3,6 +3,7 @@ import CoreGraphics
 
 class HotkeyListener {
     private let settings: AppSettings
+    private let session: Session
     private let onPress: () -> Void
     private let onRelease: () -> Void
     var onPolishPress: (() -> Void)?
@@ -35,16 +36,24 @@ class HotkeyListener {
     private func rebuildHotkeySet() {
         let codes = settings.hotkeyKeyCodes
         _hotkeySet = codes.isEmpty ? [59] : Set(codes)
-        _polishKeyCodes = Set(settings.polishHotkeyKeyCodes)
+        // Polish hotkey only registered for Wispr Flow account holders; other
+        // vendors don't have access to the polish endpoint.
+        _polishKeyCodes = session.isWisprFlowAccount ? Set(settings.polishHotkeyKeyCodes) : []
     }
 
-    init(settings: AppSettings, onPress: @escaping () -> Void, onRelease: @escaping () -> Void) {
+    init(settings: AppSettings, session: Session, onPress: @escaping () -> Void, onRelease: @escaping () -> Void) {
         self.settings = settings
+        self.session = session
         self.onPress = onPress
         self.onRelease = onRelease
 
         NotificationCenter.default.addObserver(
             forName: .settingsChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.rebuildHotkeySet()
+        }
+        NotificationCenter.default.addObserver(
+            forName: .sessionChanged, object: nil, queue: .main
         ) { [weak self] _ in
             self?.rebuildHotkeySet()
         }
