@@ -1674,14 +1674,6 @@ class SettingsViewModel: ObservableObject {
         return SecretsStore.write(.openRouterAPIKey, trimmed)
     }
 
-    /// Explicit destructive action — only called from a "Clear saved key"
-    /// affordance if we add one later. Not wired in the current UI.
-    func clearOpenRouterAPIKey() {
-        SecretsStore.delete(.openRouterAPIKey)
-        openRouterAPIKey = ""
-        openRouterKeyLoaded = true  // suppresses next loadIfNeeded read
-    }
-
     /// Load the OpenRouter API key from disk on demand. SecretsStore is
     /// file-backed, so this never triggers a Keychain prompt.
     private var openRouterKeyLoaded = false

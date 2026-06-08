@@ -18,7 +18,6 @@ import Foundation
 enum SecretsStore {
     enum Key: String {
         case openRouterAPIKey
-        case claudeCodeTokenMirror
     }
 
     private static let lock = NSLock()
