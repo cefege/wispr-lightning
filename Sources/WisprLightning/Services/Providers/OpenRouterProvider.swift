@@ -24,6 +24,40 @@ final class OpenRouterProvider: DictationProvider {
         self.modelOverride = modelOverride
     }
 
+    /// Map an OpenRouter HTTP error response to a TranscriptionError that
+    /// has the right retry semantics and a user-facing message that points
+    /// the user at the actual problem (key vs credits vs rate limit vs
+    /// server-side outage).
+    private static func classifyError(statusCode: Int, body: Data) -> TranscriptionError {
+        // OpenRouter usually returns {"error": {"message": "...", "code": 401}}
+        let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+        let errorBlob = json?["error"] as? [String: Any]
+        let serverMessage = (errorBlob?["message"] as? String)
+            ?? String(data: body, encoding: .utf8)?.prefix(200).description
+            ?? ""
+
+        switch statusCode {
+        case 401, 403:
+            return .authFailed("OpenRouter: your API key was rejected (HTTP \(statusCode)). Open Settings → Accounts → OpenRouter and paste a fresh key from openrouter.ai/keys.")
+        case 402:
+            // OpenRouter returns 402 when the account is out of credits.
+            return .authFailed("OpenRouter: out of credits (HTTP 402). Add funds at openrouter.ai/credits, then try again. \(serverMessage)")
+        case 429:
+            // Rate limited. Retryable — backoff helps.
+            return .serverError("OpenRouter: rate limited (HTTP 429). \(serverMessage)")
+        case 400, 404:
+            // Bad request / model not found — usually a stale model id in
+            // settings. Non-retryable since the chain would hit the same
+            // error; route as authFailed-style guidance so the fallback
+            // chain advances rather than auto-retrying twice first.
+            return .authFailed("OpenRouter: HTTP \(statusCode) — \(serverMessage). The model id may no longer exist; pick a different one in Settings → Provider.")
+        case 500...599:
+            return .serverError("OpenRouter: server error HTTP \(statusCode). \(serverMessage)")
+        default:
+            return .serverError("OpenRouter: HTTP \(statusCode): \(serverMessage)")
+        }
+    }
+
     private var apiKey: String? {
         if let env = ProcessInfo.processInfo.environment["WISPR_LIGHTNING_OPENROUTER_KEY"], !env.isEmpty {
             return env
@@ -101,8 +135,8 @@ final class OpenRouterProvider: DictationProvider {
             return
         }
         guard let apiKey = apiKey else {
-            wLog("OpenRouter: no API key — open Settings → Provider and paste your key")
-            completion(.failure(.authFailed))
+            wLog("OpenRouter: no API key — open Settings → Accounts → OpenRouter and paste your key")
+            completion(.failure(.authFailed("OpenRouter has no saved API key. Open Settings → Accounts → OpenRouter and paste one from openrouter.ai/keys.")))
             return
         }
 
@@ -156,7 +190,7 @@ final class OpenRouterProvider: DictationProvider {
             if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
                 let snippet = String(data: data, encoding: .utf8)?.prefix(400) ?? ""
                 wLog("OpenRouter: HTTP \(http.statusCode) — \(snippet)")
-                completion(.failure(.serverError("HTTP \(http.statusCode): \(snippet)")))
+                completion(.failure(Self.classifyError(statusCode: http.statusCode, body: data)))
                 return
             }
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

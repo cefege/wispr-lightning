@@ -167,7 +167,9 @@ class WisprFlowProvider: DictationProvider {
             session.refresh { [weak self] success in
                 guard success, let self = self else {
                     NSLog("Wispr Lightning: Cannot transcribe — auth failed")
-                    completion(.failure(.authFailed))
+                    // Broadcast so the status bar can flip its indicator.
+                    NotificationCenter.default.post(name: .sessionChanged, object: nil)
+                    completion(.failure(.authFailed("Wispr Flow sign-in expired and refresh failed. Open Settings → Accounts → Wispr Flow and sign in again.")))
                     return
                 }
                 self.performTranscription(packets: packets, context: context, completion: completion)
@@ -321,13 +323,13 @@ class WisprFlowProvider: DictationProvider {
                         wLog("WebSocket auth failed — unexpected response")
                         self.stopPinging(wsTask)
                         wsTask.cancel(with: .internalServerError, reason: nil)
-                        safeComplete(.failure(.authFailed))
+                        safeComplete(.failure(.authFailed("Wispr Flow rejected the WebSocket auth. Open Settings → Accounts → Wispr Flow and sign in again.")))
                     }
                 } else {
                     wLog("WebSocket auth failed — non-string message received")
                     self.stopPinging(wsTask)
                     wsTask.cancel(with: .internalServerError, reason: nil)
-                    safeComplete(.failure(.authFailed))
+                    safeComplete(.failure(.authFailed("Wispr Flow rejected the WebSocket auth. Open Settings → Accounts → Wispr Flow and sign in again.")))
                 }
             case .failure(let error):
                 wLog("WS receive failed: \(error.localizedDescription)")

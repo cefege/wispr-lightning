@@ -90,6 +90,19 @@ class StatusBarController {
     private func buildMenu() {
         let menu = NSMenu()
 
+        // Auth alerts — pinned to the top so the user notices before they
+        // press the hotkey and dictate into the void.
+        let activeVendor = DictationVendor(rawValue: settings.activeVendor) ?? .wisprFlow
+        if activeVendor == .wisprFlow && !session.isValid {
+            let item = NSMenuItem(title: "⚠ Wispr Flow sign-in required",
+                                  action: #selector(openSettingsWindow), keyEquivalent: "")
+            item.target = self
+            let attrs: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.systemOrange]
+            item.attributedTitle = NSAttributedString(string: "⚠ Wispr Flow sign-in required", attributes: attrs)
+            menu.addItem(item)
+            menu.addItem(NSMenuItem.separator())
+        }
+
         // Last transcription preview
         if let text = lastTranscription, !text.isEmpty {
             let preview = text.count > 60 ? String(text.prefix(60)) + "…" : text

@@ -19,7 +19,7 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
     private var packetCount: Int = 0
     private var failureMessage: String?
     /// True when the failure should be classified as an auth failure rather
-    /// than a generic server error — used to return `.authFailed` (which is
+    /// than a generic server error — used to return `.authFailed(nil)` (which is
     /// non-retryable) and to drop the cached token before the next attempt.
     private var failureIsAuth = false
     private let queue = DispatchQueue(label: "WisprLightning.ClaudeVoiceProvider")
@@ -189,7 +189,7 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
             // in the meantime.
             if isAuthFailure {
                 ClaudeCodeKeychain.clearAllCaches()
-                completion(.failure(.authFailed))
+                completion(.failure(.authFailed(nil)))
             } else {
                 completion(.failure(.serverError(failure)))
             }

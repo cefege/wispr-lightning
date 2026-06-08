@@ -21,7 +21,10 @@ struct TranscriptResult {
 }
 
 enum TranscriptionError: Error {
-    case authFailed
+    /// Optional vendor-specific guidance string (e.g. "OpenRouter: HTTP 401
+    /// — your API key is invalid"). When nil, a generic "Authentication
+    /// failed" is shown.
+    case authFailed(String?)
     case connectionFailed
     case serverError(String)
     case timeout
@@ -51,8 +54,8 @@ enum TranscriptionError: Error {
 
     var userMessage: String {
         switch self {
-        case .authFailed:
-            return "Authentication failed — please sign in again"
+        case .authFailed(let detail):
+            return detail ?? "Authentication failed — please sign in again"
         case .connectionFailed:
             return "Connection failed — check your network"
         case .serverError(let detail):

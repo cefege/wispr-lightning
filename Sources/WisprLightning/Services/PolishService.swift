@@ -28,7 +28,7 @@ class PolishService {
         guard session.isValid else {
             session.refresh { [weak self] success in
                 guard success, let self = self else {
-                    completion(.failure(.authFailed))
+                    completion(.failure(.authFailed(nil)))
                     return
                 }
                 self.performPolish(text: text, instructions: instructions, completion: completion)
