@@ -16,16 +16,57 @@ enum KeychainStore {
         case openRouterAPIKey = "openrouter.api_key"
     }
 
+    /// Process-wide in-memory cache. Without this, every Settings open
+    /// (SettingsViewModel.init) and every dictation (OpenRouterProvider.apiKey)
+    /// triggers SecItemCopyMatching — and if the item was written by a
+    /// differently-signed prior build, every one of those reads prompts
+    /// the user for their login password. Caching means one prompt per
+    /// launch at worst.
+    private static let cacheLock = NSLock()
+    private static var cache: [Key: String] = [:]
+
     /// Retrieve a stored value, or `nil` if not present / unreadable.
     /// Falls back to the legacy `com.wispr.edge` service and migrates the
     /// value over on first read so subsequent calls hit the new service.
+    /// Returns from in-process cache when available.
     static func read(_ key: Key) -> String? {
-        if let v = rawRead(service: service, account: key.rawValue) { return v }
-        if let legacy = rawRead(service: legacyService, account: key.rawValue) {
-            _ = write(key, legacy)
-            return legacy
+        cacheLock.lock()
+        let cached = cache[key]
+        cacheLock.unlock()
+        if let cached { return cached }
+
+        let resolved: String?
+        let cameFromLegacy: Bool
+        if let v = rawRead(service: service, account: key.rawValue) {
+            resolved = v
+            cameFromLegacy = false
+        } else if let legacy = rawRead(service: legacyService, account: key.rawValue) {
+            resolved = legacy
+            cameFromLegacy = true
+        } else {
+            resolved = nil
+            cameFromLegacy = false
         }
-        return nil
+
+        if let resolved {
+            // Rewrite the item back to our own service. If we read it from
+            // the legacy service this is the migration step. If we read it
+            // from our own service it's an ownership-rotation step: the
+            // entry might have been written by a prior unsigned / differently
+            // signed build whose code identity no longer matches, which is
+            // exactly what triggers the "enter your login password" prompt
+            // every launch. Rewriting under the current code identity makes
+            // the next launch's read silent.
+            _ = writeRaw(service: service, account: key.rawValue, value: resolved)
+            if cameFromLegacy {
+                // Also drop the legacy entry so we don't re-prompt on it later.
+                _ = writeRaw(service: legacyService, account: key.rawValue, value: nil)
+            }
+            cacheLock.lock()
+            cache[key] = resolved
+            cacheLock.unlock()
+        }
+        return resolved
     }
 
     private static func rawRead(service: String, account: String) -> String? {
@@ -48,10 +89,28 @@ enum KeychainStore {
     /// Store (or replace) a value. Passing `nil` deletes the entry.
     @discardableResult
     static func write(_ key: Key, _ value: String?) -> Bool {
+        let ok = writeRaw(service: service, account: key.rawValue, value: value)
+        cacheLock.lock()
+        if let value, !value.isEmpty {
+            cache[key] = value
+        } else {
+            cache.removeValue(forKey: key)
+        }
+        cacheLock.unlock()
+        return ok
+    }
+
+    @discardableResult
+    static func delete(_ key: Key) -> Bool {
+        return write(key, nil)
+    }
+
+    @discardableResult
+    private static func writeRaw(service: String, account: String, value: String?) -> Bool {
         let baseQuery: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue,
+            kSecAttrAccount as String: account,
         ]
         SecItemDelete(baseQuery as CFDictionary)
         guard let value = value, !value.isEmpty else { return true }
@@ -61,10 +120,5 @@ enum KeychainStore {
         attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
         let status = SecItemAdd(attrs as CFDictionary, nil)
         return status == errSecSuccess
-    }
-
-    @discardableResult
-    static func delete(_ key: Key) -> Bool {
-        return write(key, nil)
     }
 }
