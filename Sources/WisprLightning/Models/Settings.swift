@@ -1,5 +1,21 @@
 import Foundation
 
+/// One step in the user-configured fallback chain. `vendor` is a
+/// `DictationVendor` rawValue; `openRouterModel` is honoured only when
+/// `vendor == openRouter` and lets the chain include multiple OpenRouter
+/// models with different speed/quality tradeoffs.
+struct FallbackStep: Codable, Hashable, Identifiable {
+    var id: UUID
+    var vendor: String
+    var openRouterModel: String?
+
+    init(vendor: String, openRouterModel: String? = nil) {
+        self.id = UUID()
+        self.vendor = vendor
+        self.openRouterModel = openRouterModel
+    }
+}
+
 class AppSettings: Codable {
     // Deprecated — kept for Codable backward-compat. All readers use the array form.
     var hotkeyKeyCode: UInt16 = 59
@@ -70,6 +86,11 @@ class AppSettings: Codable {
     // Transcription vendor — see DictationVendor enum
     var activeVendor: String = DictationVendor.wisprFlow.rawValue
     var openRouterModel: String = "google/gemini-2.5-flash-lite"
+    /// Ordered fallback chain. When the primary vendor fails with a hard
+    /// error (auth / connection / server / timeout), Lightning rebuilds the
+    /// dictation provider as `fallbackChain[0]`, retries with the same audio,
+    /// and walks the chain on subsequent failures.
+    var fallbackChain: [FallbackStep] = []
 
     // Onboarding — flipped to true once the user has closed the wizard at
     // least once. The wizard still auto-shows on subsequent launches if any

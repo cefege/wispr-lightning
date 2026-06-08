@@ -11,12 +11,17 @@ final class OpenRouterProvider: DictationProvider {
 
     private let endpoint = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
     private let settings: AppSettings
+    /// Per-step override used by the fallback chain. When set, this wins over
+    /// `settings.openRouterModel` so the chain can include multiple OpenRouter
+    /// models with different speed/quality tradeoffs.
+    private let modelOverride: String?
 
     private var bufferedPackets: [Data] = []
     private let bufferLock = NSLock()
 
-    init(settings: AppSettings) {
+    init(settings: AppSettings, modelOverride: String? = nil) {
         self.settings = settings
+        self.modelOverride = modelOverride
     }
 
     private var apiKey: String? {
@@ -27,6 +32,9 @@ final class OpenRouterProvider: DictationProvider {
     }
 
     private var model: String {
+        if let override = modelOverride?.trimmingCharacters(in: .whitespaces), !override.isEmpty {
+            return override
+        }
         let configured = settings.openRouterModel.trimmingCharacters(in: .whitespaces)
         return configured.isEmpty ? "google/gemini-2.5-flash-lite" : configured
     }

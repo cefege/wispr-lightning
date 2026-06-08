@@ -36,6 +36,19 @@ enum TranscriptionError: Error {
         }
     }
 
+    /// True when failure on this provider should automatically try the next
+    /// chain step (auth, network, server, timeout — anything except
+    /// `emptyResult`, which usually means the mic didn't catch speech and
+    /// a different model won't help).
+    var shouldFallback: Bool {
+        switch self {
+        case .authFailed, .connectionFailed, .timeout, .serverError:
+            return true
+        case .emptyResult:
+            return false
+        }
+    }
+
     var userMessage: String {
         switch self {
         case .authFailed:

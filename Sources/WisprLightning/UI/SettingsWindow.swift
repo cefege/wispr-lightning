@@ -772,6 +772,51 @@ private struct ProviderDetail: View {
             } else if vm.activeVendor == DictationVendor.claudeVoice.rawValue {
                 claudeVoicePanel
             }
+
+            Divider()
+
+            fallbackChainSection
+        }
+        .onAppear { vm.loadOpenRouterModels() }
+    }
+
+    @ViewBuilder
+    private var fallbackChainSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Fallback chain").font(.title3.weight(.semibold))
+                Spacer()
+                Button("+ Add fallback") { vm.addFallbackStep() }
+                    .controlSize(.small)
+            }
+            Text("If the primary provider fails (auth, network, server, timeout), Lightning automatically retries with the next step using the same audio. Empty transcripts don't trigger fallback.")
+                .font(.callout)
+                .foregroundColor(.secondary)
+
+            if vm.fallbackChain.isEmpty {
+                Text("No fallbacks configured — primary provider only.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+                    .padding(.top, 4)
+            } else {
+                ForEach(Array(vm.fallbackChain.enumerated()), id: \.element.id) { index, step in
+                    FallbackStepRow(
+                        index: index,
+                        step: step,
+                        models: vm.openRouterModelList,
+                        modelListState: vm.openRouterModelListState,
+                        onChangeVendor: { newVendor in
+                            vm.updateFallbackStepVendor(at: index, vendor: newVendor)
+                        },
+                        onChangeModel: { newModel in
+                            vm.updateFallbackStepModel(at: index, model: newModel)
+                        },
+                        onRemove: { vm.removeFallbackStep(at: index) },
+                        onMoveUp: index > 0 ? { vm.moveFallbackStep(from: index, to: index - 1) } : nil,
+                        onMoveDown: index < vm.fallbackChain.count - 1 ? { vm.moveFallbackStep(from: index, to: index + 2) } : nil
+                    )
+                }
+            }
         }
     }
 
@@ -893,6 +938,92 @@ private struct ProviderDetail: View {
     @ViewBuilder
     private var claudeVoicePanel: some View {
         ClaudeVoiceAuthRow()
+    }
+}
+
+private struct FallbackStepRow: View {
+    let index: Int
+    let step: FallbackStep
+    let models: [OpenRouterAudioModel]
+    let modelListState: SettingsViewModel.OpenRouterModelListState
+    let onChangeVendor: (String) -> Void
+    let onChangeModel: (String?) -> Void
+    let onRemove: () -> Void
+    let onMoveUp: (() -> Void)?
+    let onMoveDown: (() -> Void)?
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("\(index + 2).")  // 1 is the primary; chain starts at 2
+                .font(.body.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 26, alignment: .trailing)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Vendor", selection: Binding(
+                    get: { step.vendor },
+                    set: { onChangeVendor($0) }
+                )) {
+                    ForEach(DictationVendor.allCases, id: \.rawValue) { v in
+                        Text(v.displayName).tag(v.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 280, alignment: .leading)
+
+                if step.vendor == DictationVendor.openRouter.rawValue {
+                    Picker("Model", selection: Binding(
+                        get: { step.openRouterModel ?? "" },
+                        set: { onChangeModel($0.isEmpty ? nil : $0) }
+                    )) {
+                        Text("Use primary OpenRouter model").tag("")
+                        if case .loaded = modelListState {
+                            ForEach(models) { m in
+                                Text(m.displayLabel).tag(m.id)
+                            }
+                            if let chosen = step.openRouterModel,
+                               !models.contains(where: { $0.id == chosen }) {
+                                Text("Custom: \(chosen)").tag(chosen)
+                            }
+                        } else {
+                            Text("Loading models…").tag("loading-placeholder").disabled(true)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 420, alignment: .leading)
+                }
+            }
+
+            Spacer()
+
+            HStack(spacing: 4) {
+                if let onMoveUp {
+                    Button { onMoveUp() } label: {
+                        Image(systemName: "chevron.up")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Move up")
+                }
+                if let onMoveDown {
+                    Button { onMoveDown() } label: {
+                        Image(systemName: "chevron.down")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Move down")
+                }
+                Button { onRemove() } label: {
+                    Image(systemName: "minus.circle")
+                        .foregroundStyle(.red)
+                }
+                .buttonStyle(.borderless)
+                .help("Remove this fallback step")
+            }
+        }
+        .padding(10)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
     }
 }
 
@@ -1303,6 +1434,7 @@ class SettingsViewModel: ObservableObject {
     @Published var openRouterAPIKey: String
     @Published var openRouterModelList: [OpenRouterAudioModel] = []
     @Published var openRouterModelListState: OpenRouterModelListState = .idle
+    @Published var fallbackChain: [FallbackStep] = []
 
     enum OpenRouterModelListState: Equatable {
         case idle
@@ -1492,6 +1624,7 @@ class SettingsViewModel: ObservableObject {
         self.activeVendor = settings.activeVendor
         self.openRouterModel = settings.openRouterModel
         self.openRouterAPIKey = KeychainStore.read(.openRouterAPIKey) ?? ""
+        self.fallbackChain = settings.fallbackChain
 
         refreshMicDevices()
         availableSoundPacks = SoundManager.availablePacks()
@@ -1516,6 +1649,53 @@ class SettingsViewModel: ObservableObject {
             KeychainStore.write(.openRouterAPIKey, trimmed)
         }
         NotificationCenter.default.post(name: .settingsChanged, object: settings)
+    }
+
+    // MARK: - Fallback chain
+
+    func addFallbackStep() {
+        // Default new step to whatever vendor the user isn't already on.
+        let existingVendors = Set(fallbackChain.map { $0.vendor }).union([activeVendor])
+        let candidate = DictationVendor.allCases.first { !existingVendors.contains($0.rawValue) }
+            ?? .openRouter
+        fallbackChain.append(FallbackStep(vendor: candidate.rawValue))
+        saveFallbackChain()
+    }
+
+    func removeFallbackStep(at index: Int) {
+        guard fallbackChain.indices.contains(index) else { return }
+        fallbackChain.remove(at: index)
+        saveFallbackChain()
+    }
+
+    func moveFallbackStep(from src: Int, to dst: Int) {
+        guard fallbackChain.indices.contains(src),
+              dst >= 0, dst <= fallbackChain.count, src != dst else { return }
+        let step = fallbackChain.remove(at: src)
+        let insertAt = dst > src ? dst - 1 : dst
+        fallbackChain.insert(step, at: insertAt)
+        saveFallbackChain()
+    }
+
+    func updateFallbackStepVendor(at index: Int, vendor: String) {
+        guard fallbackChain.indices.contains(index) else { return }
+        fallbackChain[index].vendor = vendor
+        if vendor != DictationVendor.openRouter.rawValue {
+            fallbackChain[index].openRouterModel = nil
+        }
+        saveFallbackChain()
+    }
+
+    func updateFallbackStepModel(at index: Int, model: String?) {
+        guard fallbackChain.indices.contains(index) else { return }
+        let cleaned = model?.trimmingCharacters(in: .whitespaces)
+        fallbackChain[index].openRouterModel = (cleaned?.isEmpty == false) ? cleaned : nil
+        saveFallbackChain()
+    }
+
+    private func saveFallbackChain() {
+        settings.fallbackChain = fallbackChain
+        settings.save()
     }
 
     /// Async fetch of all audio-input models from OpenRouter. Cheap-first.

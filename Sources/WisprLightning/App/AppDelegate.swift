@@ -81,6 +81,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var currentRetryAttempt = 0
     private var isTranscribing = false
     private static let maxAutoRetries = 2
+    /// Index into the fallback chain. 0 = primary vendor (settings.activeVendor);
+    /// 1..N = settings.fallbackChain[index - 1]. Reset to 0 between dictations.
+    private var currentChainIndex: Int = 0
     private static let pendingAudioDir: URL = {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
             .appendingPathComponent("WisprLightning/PendingAudio")
@@ -626,6 +629,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             case .failure(let error):
                 self.isTranscribing = false
 
+                // Fallback chain: if the user configured one and this failure
+                // should fall through (auth / network / server / timeout),
+                // jump straight to the next chain step with the same audio
+                // packets. Single-shot per step — chain length IS the retry
+                // budget. emptyResult never falls back (mic didn't catch it).
+                if error.shouldFallback && self.hasNextChainStep() {
+                    let nextVendor = self.advanceChainStep()
+                    wLog("Fallback: step \(self.currentChainIndex) → \(nextVendor.displayName) (after \(error.userMessage))")
+                    DispatchQueue.main.async {
+                        self.recordingOverlay.showRetrying(
+                            attempt: self.currentChainIndex + 1,
+                            maxAttempts: self.settings.fallbackChain.count + 1
+                        )
+                    }
+                    DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                        self?.attemptTranscription()
+                    }
+                    return
+                }
+
                 if error.isRetryable && self.currentRetryAttempt < Self.maxAutoRetries {
                     self.currentRetryAttempt += 1
                     let attempt = self.currentRetryAttempt
@@ -729,8 +752,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         pendingOcrContext = nil
         pendingAxContext = nil
         currentRetryAttempt = 0
+        currentChainIndex = 0
         isTranscribing = false
         dictationProvider.clearEncodingCache()
+        // After a successful or dismissed dictation, reset the live provider
+        // back to the user's primary vendor so the next dictation starts fresh.
+        if currentVendor() != activeVendor {
+            // Already handled by refreshProviderIfChanged in the settings observer.
+        } else {
+            dictationProvider.cancel()
+            dictationProvider = Self.makeProvider(vendor: activeVendor, session: session, settings: settings)
+            dictationProvider.dictionaryStore = dictionaryStore
+        }
     }
 
     /// Save audio as a playable WAV file to ~/Downloads.
@@ -1058,12 +1091,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return DictationVendor(rawValue: settings.activeVendor) ?? .wisprFlow
     }
 
-    private static func makeProvider(vendor: DictationVendor, session: Session, settings: AppSettings) -> DictationProvider {
+    private static func makeProvider(vendor: DictationVendor,
+                                     session: Session,
+                                     settings: AppSettings,
+                                     openRouterModelOverride: String? = nil) -> DictationProvider {
         switch vendor {
         case .wisprFlow:
             return WisprFlowProvider(session: session, settings: settings)
         case .openRouter:
-            return OpenRouterProvider(settings: settings)
+            return OpenRouterProvider(settings: settings, modelOverride: openRouterModelOverride)
         case .claudeVoice:
             return ClaudeVoiceProvider(settings: settings)
         }
@@ -1077,6 +1113,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         dictationProvider = Self.makeProvider(vendor: desired, session: session, settings: settings)
         dictationProvider.dictionaryStore = dictionaryStore
         activeVendor = desired
+    }
+
+    /// Build the provider for `currentChainIndex`. Step 0 is the primary
+    /// vendor; later steps come from `settings.fallbackChain`.
+    private func providerForCurrentChainStep() -> DictationProvider {
+        if currentChainIndex == 0 {
+            return Self.makeProvider(vendor: activeVendor, session: session, settings: settings)
+        }
+        let stepIndex = currentChainIndex - 1
+        let step = settings.fallbackChain[stepIndex]
+        let vendor = DictationVendor(rawValue: step.vendor) ?? .wisprFlow
+        let provider = Self.makeProvider(
+            vendor: vendor,
+            session: session,
+            settings: settings,
+            openRouterModelOverride: step.openRouterModel
+        )
+        return provider
+    }
+
+    /// True when there's at least one more fallback step to try.
+    private func hasNextChainStep() -> Bool {
+        return currentChainIndex < settings.fallbackChain.count
+    }
+
+    /// Advance the chain index and rebuild the live provider. Returns the
+    /// vendor we moved to, for logging.
+    private func advanceChainStep() -> DictationVendor {
+        currentChainIndex += 1
+        let step = settings.fallbackChain[currentChainIndex - 1]
+        let vendor = DictationVendor(rawValue: step.vendor) ?? .wisprFlow
+        dictationProvider.cancel()
+        dictationProvider = providerForCurrentChainStep()
+        dictationProvider.dictionaryStore = dictionaryStore
+        return vendor
     }
 
     func applicationWillTerminate(_ notification: Notification) {
