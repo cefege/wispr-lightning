@@ -248,7 +248,7 @@ struct AllSettingsView: View {
 
 // MARK: - Settings Window Controller
 
-class SettingsWindowController {
+class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var settingsVM: SettingsViewModel?
     private let settings: AppSettings
@@ -256,6 +256,11 @@ class SettingsWindowController {
     private let historyStore: HistoryStore
     private let dictionaryStore: DictionaryStore
     private let notesStore: NotesStore
+    /// Raises Settings whenever the app becomes active. Without this, after
+    /// a Keychain prompt or any modal dialog steals focus, macOS hands focus
+    /// back to whatever was frontmost before Lightning — not to our window —
+    /// and an LSUIElement app with no dock icon feels like it "hides".
+    private var becomeActiveObserver: NSObjectProtocol?
 
     init(settings: AppSettings, session: Session, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore) {
         self.settings = settings
@@ -265,10 +270,42 @@ class SettingsWindowController {
         self.notesStore = notesStore
     }
 
+    deinit {
+        if let observer = becomeActiveObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    /// Tracks the policy we had before opening Settings so windowWillClose
+    /// can restore it (don't promote to `.regular` permanently if the user
+    /// hadn't checked "Show in Dock").
+    private var policyBeforeOpen: NSApplication.ActivationPolicy?
+
+    private func promoteToRegular() {
+        if policyBeforeOpen == nil {
+            policyBeforeOpen = NSApp.activationPolicy()
+        }
+        // .regular = dock icon + cmd-tab + proper focus behavior. Without this,
+        // an LSUIElement app loses focus to whatever was previously frontmost
+        // every time a Keychain / system dialog steals focus from us.
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+    }
+
+    private func restorePolicy() {
+        if let prior = policyBeforeOpen, prior != .regular {
+            NSApp.setActivationPolicy(prior)
+        }
+        policyBeforeOpen = nil
+    }
+
     func showWindow() {
+        promoteToRegular()
         if let window = window {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            startObservingActivation()
             return
         }
 
@@ -293,10 +330,43 @@ class SettingsWindowController {
         w.minSize = NSSize(width: 680, height: 460)
         w.contentView = hostingView
         w.setFrameAutosaveName("SettingsWindow")
+        // Hide the window from the cmd-h / cmd-w "everything closes" sweep so
+        // a stray hotkey doesn't lose the user's place mid-setup.
+        w.collectionBehavior = [.fullScreenAuxiliary, .moveToActiveSpace]
+        w.delegate = self
 
         self.window = w
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        startObservingActivation()
+    }
+
+    // MARK: - Re-raise on activation
+
+    private func startObservingActivation() {
+        guard becomeActiveObserver == nil else { return }
+        becomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.window?.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    private func stopObservingActivation() {
+        if let observer = becomeActiveObserver {
+            NotificationCenter.default.removeObserver(observer)
+            becomeActiveObserver = nil
+        }
+    }
+
+    // NSWindowDelegate — when the user closes the Settings window, stop
+    // re-raising it on every app activation and revert the activation policy
+    // so the app goes back to being a menu-bar accessory (if it was before).
+    func windowWillClose(_ notification: Notification) {
+        stopObservingActivation()
+        restorePolicy()
     }
 }
 
@@ -1285,7 +1355,12 @@ private final class ClaudeVoiceAuthCheck: ObservableObject {
             } catch {
                 next = .notSignedIn
             }
-            DispatchQueue.main.async { self?.state = next }
+            DispatchQueue.main.async {
+                self?.state = next
+                // The Keychain password dialog steals focus away from us; pull
+                // it back so the Settings window doesn't feel like it vanished.
+                NSApp.activate(ignoringOtherApps: true)
+            }
         }
     }
 }

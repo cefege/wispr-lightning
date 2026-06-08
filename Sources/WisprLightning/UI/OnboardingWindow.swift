@@ -22,7 +22,26 @@ final class OnboardingWindowController {
         }
     }
 
+    private var policyBeforeOpen: NSApplication.ActivationPolicy?
+
+    private func promoteToRegular() {
+        if policyBeforeOpen == nil {
+            policyBeforeOpen = NSApp.activationPolicy()
+        }
+        if NSApp.activationPolicy() != .regular {
+            NSApp.setActivationPolicy(.regular)
+        }
+    }
+
+    private func restorePolicy() {
+        if let prior = policyBeforeOpen, prior != .regular {
+            NSApp.setActivationPolicy(prior)
+        }
+        policyBeforeOpen = nil
+    }
+
     func show() {
+        promoteToRegular()
         if let w = window {
             w.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -34,6 +53,7 @@ final class OnboardingWindowController {
             self.settings.save()
             self.window?.close()
             self.stopObservingActivation()
+            self.restorePolicy()
             self.onCompleted()
         })
         let hosting = NSHostingController(rootView: view)
