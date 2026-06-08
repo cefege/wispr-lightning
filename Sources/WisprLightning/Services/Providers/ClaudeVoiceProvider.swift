@@ -59,7 +59,11 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
         queue.async { [weak self] in
             guard let self else { return }
             guard self.inSession, let stream = self.stream else {
-                completion(.failure(.connectionFailed))
+                // beginSession failed (no/expired token, or connect error).
+                // Surface the recorded reason so the pill tells the user what to do.
+                let msg = self.failureMessage ?? "Claude Voice is not signed in. Run `claude /login` in a terminal."
+                self.failureMessage = nil
+                completion(.failure(.serverError(msg)))
                 return
             }
             Task { [weak self] in
@@ -97,12 +101,14 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
             token = try ClaudeCodeKeychain.read()
         } catch {
             wLog("Claude Voice: \(error)")
+            failureMessage = "Run `claude /login` in a terminal, then try again."
             stream = nil
             inSession = false
             return
         }
         if token.isExpired {
             wLog("Claude Voice: token expired — run `claude /login`")
+            failureMessage = "Claude Code token expired — run `claude /login`."
             inSession = false
             return
         }

@@ -101,6 +101,33 @@ if [ -d "$INSTALL_DIR/$APP_BUNDLE" ]; then
 fi
 cp -R "$SCRIPT_DIR/$APP_BUNDLE" "$INSTALL_DIR/$APP_BUNDLE"
 
+# Strip quarantine so Gatekeeper doesn't block unsigned local builds.
+xattr -cr "$INSTALL_DIR/$APP_BUNDLE" || true
+
+# Why: signing with a stable identity makes TCC grants (Accessibility, Input
+# Monitoring, Microphone, Screen Recording) survive across rebuilds. Without
+# this, every rebuild has a different cdhash and macOS treats it as a fresh
+# app — re-prompting for every permission.
+IDENTITY=""
+if [ -f "$SCRIPT_DIR/.codesign-identity" ]; then
+    IDENTITY="$(cat "$SCRIPT_DIR/.codesign-identity")"
+fi
+
+if [ -n "$IDENTITY" ]; then
+    echo "Signing with identity: $IDENTITY"
+    codesign --force --deep \
+        --sign "$IDENTITY" \
+        --identifier "com.wisprlightning.app" \
+        "$INSTALL_DIR/$APP_BUNDLE"
+else
+    echo "No code-signing identity configured."
+    echo "  → Run ./setup-codesign.sh once to stop re-granting permissions on every install."
+    codesign --force --deep \
+        --sign - \
+        --identifier "com.wisprlightning.app" \
+        "$INSTALL_DIR/$APP_BUNDLE" 2>/dev/null || true
+fi
+
 echo ""
 echo "Installed: $INSTALL_DIR/$APP_BUNDLE"
 echo ""

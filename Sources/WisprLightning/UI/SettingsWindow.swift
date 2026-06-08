@@ -775,9 +775,7 @@ private struct ProviderDetail: View {
                     .font(.callout)
                     .foregroundColor(.secondary)
             } else if vm.activeVendor == DictationVendor.claudeVoice.rawValue {
-                Text("Reads auth from the Claude CLI's Keychain entry (`claude /login`). No sign-in needed here.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
+                claudeVoicePanel
             }
         }
     }
@@ -865,6 +863,121 @@ private struct ProviderDetail: View {
         Text("Audio is sent inline as WAV. Both audio and the cleaned transcript count toward OpenRouter usage.")
             .font(.caption)
             .foregroundColor(.secondary)
+    }
+
+    @ViewBuilder
+    private var claudeVoicePanel: some View {
+        ClaudeVoiceAuthRow()
+    }
+}
+
+/// Inline check of the `Claude Code-credentials` Keychain entry. Deliberately
+/// not part of `PermissionStatusPoller` because the first Keychain read after
+/// a fresh launch triggers a macOS password dialog — we let the user fire it
+/// explicitly with the "Check" button instead of at view-appear time.
+private struct ClaudeVoiceAuthRow: View {
+    @StateObject private var auth = ClaudeVoiceAuthCheck()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
+            Text("Sends audio live to Claude Code's STT WebSocket. Auth uses the OAuth token the `claude` CLI stores in your Keychain — Wispr Lightning never writes to it.")
+                .font(.callout)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 12) {
+                Image(systemName: iconName)
+                    .foregroundStyle(iconColor)
+                    .font(.title2)
+                    .frame(width: 24)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Claude Code sign-in").font(.body.bold())
+                    Text(rationale)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                actionButtons
+            }
+            .padding(12)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
+        }
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        switch auth.state {
+        case .signedIn:
+            Text("Signed in").font(.caption).foregroundStyle(.green)
+        case .checking:
+            ProgressView().controlSize(.small)
+        case .unchecked:
+            Button("Check") { auth.check() }.controlSize(.small)
+        case .expired, .notSignedIn:
+            HStack(spacing: 6) {
+                Button("Copy command") { copyLoginCommand() }.controlSize(.small)
+                Button("Re-check") { auth.check() }.controlSize(.small)
+            }
+        }
+    }
+
+    private func copyLoginCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("claude /login", forType: .string)
+    }
+
+    private var iconName: String {
+        switch auth.state {
+        case .signedIn: return "checkmark.circle.fill"
+        case .checking, .unchecked: return "questionmark.circle.fill"
+        case .expired, .notSignedIn: return "exclamationmark.circle.fill"
+        }
+    }
+
+    private var iconColor: Color {
+        switch auth.state {
+        case .signedIn: return .green
+        case .checking, .unchecked: return .secondary
+        case .expired, .notSignedIn: return .orange
+        }
+    }
+
+    private var rationale: String {
+        switch auth.state {
+        case .unchecked:
+            return "Reads the OAuth token the `claude` CLI stored in your Keychain. macOS may ask for your login password the first time."
+        case .checking:
+            return "Reading Keychain…"
+        case .signedIn:
+            return "Token found and valid."
+        case .expired:
+            return "Token expired — run `claude /login` in a terminal."
+        case .notSignedIn:
+            return "No token found — run `claude /login` in a terminal."
+        }
+    }
+}
+
+private final class ClaudeVoiceAuthCheck: ObservableObject {
+    enum State: Equatable { case unchecked, checking, signedIn, expired, notSignedIn }
+    @Published private(set) var state: State = .unchecked
+
+    func check() {
+        guard state != .checking else { return }
+        state = .checking
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let next: State
+            do {
+                // forceRefresh:true so a Re-check after `claude /login` sees
+                // the new token instead of the cached stale one.
+                let token = try ClaudeCodeKeychain.read(forceRefresh: true)
+                next = token.isExpired ? .expired : .signedIn
+            } catch {
+                next = .notSignedIn
+            }
+            DispatchQueue.main.async { self?.state = next }
+        }
     }
 }
 

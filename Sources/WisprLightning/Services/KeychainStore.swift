@@ -7,17 +7,32 @@ import Security
 /// plus a per-key account string. Strings are UTF-8 encoded in the keychain value.
 enum KeychainStore {
     private static let service = "com.wisprlightning"
+    /// Legacy service id used by the standalone `wispr-edge` app. Lightning
+    /// reads from there as a fallback (and migrates the value on first hit)
+    /// so users coming from Wispr Edge don't have to re-paste their key.
+    private static let legacyService = "com.wispr.edge"
 
     enum Key: String {
         case openRouterAPIKey = "openrouter.api_key"
     }
 
     /// Retrieve a stored value, or `nil` if not present / unreadable.
+    /// Falls back to the legacy `com.wispr.edge` service and migrates the
+    /// value over on first read so subsequent calls hit the new service.
     static func read(_ key: Key) -> String? {
+        if let v = rawRead(service: service, account: key.rawValue) { return v }
+        if let legacy = rawRead(service: legacyService, account: key.rawValue) {
+            _ = write(key, legacy)
+            return legacy
+        }
+        return nil
+    }
+
+    private static func rawRead(service: String, account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue,
+            kSecAttrAccount as String: account,
             kSecMatchLimit as String:  kSecMatchLimitOne,
             kSecReturnData as String:  true,
         ]
