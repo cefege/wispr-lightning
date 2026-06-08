@@ -14,6 +14,8 @@ class StatusBarController {
 
     /// Wired by AppDelegate to flip HotkeyListener's pause state.
     var onTogglePause: (() -> Void)?
+    /// Wired by AppDelegate to re-open the permissions wizard.
+    var onShowOnboarding: (() -> Void)?
 
     init(session: Session, settings: AppSettings, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore, textInjector: TextInjector) {
         self.session = session
@@ -170,6 +172,10 @@ class StatusBarController {
         naturalItem.state = settings.naturalModeEnabled ? .on : .off
         menu.addItem(naturalItem)
 
+        let setupItem = NSMenuItem(title: "Setup & Permissions…", action: #selector(showOnboardingWindow), keyEquivalent: "")
+        setupItem.target = self
+        menu.addItem(setupItem)
+
         let settingsItem = NSMenuItem(title: "Settings", action: #selector(openSettingsWindow), keyEquivalent: ",")
         settingsItem.keyEquivalentModifierMask = .command
         settingsItem.target = self
@@ -192,6 +198,10 @@ class StatusBarController {
 
     @objc private func openSettingsWindow() {
         openSettings()
+    }
+
+    @objc private func showOnboardingWindow() {
+        onShowOnboarding?()
     }
 
     @objc private func selectMicDevice(_ sender: NSMenuItem) {

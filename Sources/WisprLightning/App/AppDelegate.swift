@@ -72,6 +72,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsObserver: NSObjectProtocol?
     private var audioDevicesObserver: NSObjectProtocol?
     private var cmdCommaMonitor: Any?
+    private var onboardingController: OnboardingWindowController?
     private var pendingPackets: [Data]?
     private var pendingAudioFileURL: URL?
     private var pendingAppInfo: [String: String]?
@@ -177,6 +178,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self = self else { return }
             self.hotkeyListener.setPaused(!self.hotkeyListener.isPaused)
         }
+        statusBarController.onShowOnboarding = { [weak self] in
+            self?.showOnboarding()
+        }
 
         // Pre-warm microphone if enabled (eliminates iPhone Continuity Camera startup delay)
         if settings.keepMicrophoneActive {
@@ -231,15 +235,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return event
         }
 
-        // Prompt for Accessibility if not yet granted (required for text injection)
-        let trusted = AXIsProcessTrustedWithOptions(
-            [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-        )
-        if !trusted {
-            wLog("Accessibility not granted — text injection will not work until enabled in System Settings > Privacy & Security > Accessibility")
-        } else {
-            wLog("Accessibility: trusted")
+        // Onboarding wizard: auto-show whenever a required permission is
+        // missing, or on first launch (didCompleteOnboarding == false).
+        let requiredOk = PermissionsManager.allRequiredGranted()
+        if !requiredOk || !settings.didCompleteOnboarding {
+            showOnboarding()
         }
+        wLog("Permissions on launch — mic=\(PermissionsManager.status(.microphone)) input=\(PermissionsManager.status(.inputMonitoring)) ax=\(PermissionsManager.status(.accessibility)) screen=\(PermissionsManager.status(.screenRecording))")
 
         wLog("Ready — press \(settings.hotkeyLabels.first ?? "Left Control") to start dictating")
 
@@ -1022,6 +1024,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         source.setCancelHandler { close(fd) }
         source.resume()
         wisprFlowSessionWatcher = source
+    }
+
+    // MARK: - Onboarding
+
+    func showOnboarding() {
+        if onboardingController == nil {
+            onboardingController = OnboardingWindowController(settings: settings, onCompleted: { [weak self] in
+                guard let self else { return }
+                wLog("Onboarding completed")
+                self.onboardingController = nil
+            })
+        }
+        onboardingController?.show()
     }
 
     // MARK: - Provider selection

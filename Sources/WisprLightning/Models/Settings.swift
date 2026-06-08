@@ -67,6 +67,11 @@ class AppSettings: Codable {
     var activeVendor: String = DictationVendor.wisprFlow.rawValue
     var openRouterModel: String = "google/gemini-2.5-flash-lite"
 
+    // Onboarding — flipped to true once the user has closed the wizard at
+    // least once. The wizard still auto-shows on subsequent launches if any
+    // required permission is missing.
+    var didCompleteOnboarding: Bool = false
+
     static let settingsURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/WisprLightning")

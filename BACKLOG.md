@@ -100,3 +100,19 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
   - ~700 LOC new (3 ported files + provider + KeyTerms wiring + settings UI + status bar).
 - **Status:** done (commit 71e32d4) — ClaudeVoiceProvider with live PCM streaming, VoiceStream WS client (8s keepalive, anthropic-client-platform header), ClaudeCodeKeychain reader, ClaudeVoiceKeyTerms vocabulary extractor. Settings/status-bar already vendor-aware from B-008. OCR-keyterms wiring added in follow-up (commit f272742). Sibling repos moved to `_archived/` 2026-06-08: `claudia/` (GitHub remote at cefege/claude-voice, recoverable) and `wispr-edge/` (no remote, had uncommitted work, preserved in archive). `/Applications/Claude Voice.app` and `/Applications/Wispr Edge.app` left in place for the user to remove via Finder.
 - **Depends on:** B-008
+
+## B-010 — Onboarding window for Mac permissions
+
+- **Type:** feature
+- **Value:** high (new users hit silent failures otherwise)
+- **Evidence:** Today `AppDelegate.applicationDidFinishLaunching` calls `AXIsProcessTrustedWithOptions(prompt: true)` and that's it. Microphone is requested lazily by the audio engine, Input Monitoring is never explicitly requested (the NSEvent global monitor silently no-ops until granted), Screen Recording only matters when `useScreenContext` is on. First-launch users see a hotkey that doesn't fire and have no idea why. Claudia (archived) shipped a clean `PermissionsManager` + `OnboardingWindow` pattern that this can be ported from.
+- **Scope:** New `Services/PermissionsManager.swift` (Microphone / Input Monitoring / Accessibility / Screen Recording statuses + request actions + a `PermissionStatusPoller` that re-reads every 1s). New `UI/OnboardingWindow.swift` (480×600 SwiftUI sheet — bolt icon, one row per permission with status + Grant button). AppDelegate auto-shows on launch when any required permission is missing or `didCompleteOnboarding == false`. StatusBarController gets a "Setup & Permissions…" menu item to re-open. ~450 LOC new.
+- **Status:** done (commit <pending>) — all four permissions covered, auto-shows when missing, dismissible, status-bar re-entry. swift build green.
+
+## B-011 — Tap-to-toggle hotkey mode
+
+- **Type:** feature
+- **Value:** medium
+- **Evidence:** Today the only way to enter hands-free locked recording is the quick double-tap path in `AppDelegate.onHotkeyPress` (first press = listening, second press within 0.5s = lock, second press > 0.5s after = stop). Users who want a Wispr-Flow-like "tap once to start, tap again to stop" workflow have to learn the double-tap muscle memory or just hold the key. User asked for a setting to make a single short press behave like "click to start, click to stop".
+- **Scope:** Add `hotkeyTapToToggle: Bool` to AppSettings (default false). When true: a quick press from idle enters `.recording` directly (skip `.listening` debounce). Subsequent press stops. Held keys still behave as PTT (release → stop) so existing users aren't disrupted. Surfaces as a row in Settings → General (under Shortcuts). ~30 LOC.
+- **Status:** proposed
