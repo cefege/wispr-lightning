@@ -89,6 +89,11 @@ final class VoiceStream: NSObject, URLSessionWebSocketDelegate {
     private var didCloseStream = false
     private var lastInterim: String = ""
     private var pendingFinalization: CheckedContinuation<Void, Never>?
+    /// Why: AVAudioEngine starts producing packets ~150ms after `start()`, but
+    /// the WS open (TCP + TLS + Upgrade) takes 700-1500ms. Without buffering
+    /// here, the first ~1s of speech is dropped on the floor before isOpen
+    /// flips true, and the server never sees enough audio to emit a final.
+    private var preOpenBuffer: [Data] = []
 
     private let queue = DispatchQueue(label: "WisprLightning.VoiceStream.queue")
 
@@ -119,11 +124,18 @@ final class VoiceStream: NSObject, URLSessionWebSocketDelegate {
 
     func send(pcm: Data) {
         queue.async { [weak self] in
-            guard let self, let task = self.task, self.isOpen, !self.didCloseStream else { return }
-            task.send(.data(pcm)) { error in
-                if let error {
-                    wLogVerbose("Claude Voice: send error — \(error.localizedDescription)")
+            guard let self, let task = self.task, !self.didCloseStream else { return }
+            if self.isOpen {
+                task.send(.data(pcm)) { error in
+                    if let error {
+                        wLogVerbose("Claude Voice: send error — \(error.localizedDescription)")
+                    }
                 }
+            } else {
+                // WS handshake still in flight — buffer until didOpenWithProtocol
+                // fires, then flush in order. Without this, the first ~1s of
+                // audio gets dropped silently and the server emits no transcript.
+                self.preOpenBuffer.append(pcm)
             }
         }
     }
@@ -164,6 +176,7 @@ final class VoiceStream: NSObject, URLSessionWebSocketDelegate {
         task?.cancel(with: .normalClosure, reason: nil)
         task = nil
         isOpen = false
+        preOpenBuffer.removeAll(keepingCapacity: false)
     }
 
     // MARK: - URLSessionWebSocketDelegate
@@ -177,6 +190,16 @@ final class VoiceStream: NSObject, URLSessionWebSocketDelegate {
             self.startKeepAlive()
             self.delegate?.voiceStreamDidOpen(self)
             webSocketTask.send(.string(#"{"type":"KeepAlive"}"#)) { _ in }
+            // Flush any packets that arrived during the handshake. Order is
+            // preserved because we append on the same queue we send on.
+            let buffered = self.preOpenBuffer
+            self.preOpenBuffer.removeAll(keepingCapacity: false)
+            if !buffered.isEmpty {
+                wLog("Claude Voice: flushing \(buffered.count) pre-open packets")
+                for pcm in buffered {
+                    webSocketTask.send(.data(pcm)) { _ in }
+                }
+            }
         }
     }
 
