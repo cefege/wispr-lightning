@@ -441,20 +441,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func onHotkeyRelease() {
-        // In locked (hands-free) mode, key release does nothing — third press stops recording
+        // In locked (hands-free) mode, key release does nothing — next press stops recording
         guard recordingState == .listening else { return }
 
         let heldDuration = lastPressTime.map { Date().timeIntervalSince($0) } ?? 1.0
         if heldDuration >= AppDelegate.lockDebounceInterval {
-            // Long hold (PTT): stop after a short trailing buffer to capture tail-end of speech
+            // Long hold (PTT): stop after a short trailing buffer to capture tail-end of speech.
+            // Tap-to-toggle users still get PTT semantics when they actually hold the key.
             tapDelayTimer?.invalidate()
             tapDelayTimer = Timer.scheduledTimer(withTimeInterval: AppDelegate.trailingBufferInterval, repeats: false) { [weak self] _ in
                 guard let self = self, self.recordingState == .listening else { return }
                 self.stopRecordingSession()
             }
+        } else if settings.hotkeyTapToToggle {
+            // Quick tap in tap-to-toggle mode: lock immediately into hands-free
+            // recording. The next press stops it.
+            tapDelayTimer?.invalidate()
+            tapDelayTimer = nil
+            recordingState = .recording
+            lastPressTime = Date()
+            wLog("Recording locked — tap-to-toggle mode")
+            recordingOverlay.showLocked()
         } else {
-            // Quick tap: wait for potential second press before stopping.
-            // Fire at exactly lockDebounceInterval from the first press.
+            // Quick tap (legacy double-tap-to-lock): wait for potential second
+            // press before stopping. Fire at exactly lockDebounceInterval from
+            // the first press so a quick 2nd press still wins.
             let remaining = AppDelegate.lockDebounceInterval - heldDuration
             tapDelayTimer?.invalidate()
             tapDelayTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in

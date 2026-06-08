@@ -58,6 +58,10 @@ class AppSettings: Codable {
 
     // Hotkey
     var hotkeyPaused: Bool = false
+    /// When true, a quick press from idle enters hands-free locked recording
+    /// directly; a second press stops it. Holding the key still works as PTT
+    /// (release → stop) so existing muscle memory keeps working.
+    var hotkeyTapToToggle: Bool = false
 
     // Natural Mode — type text character-by-character instead of pasting
     var naturalModeEnabled: Bool = false

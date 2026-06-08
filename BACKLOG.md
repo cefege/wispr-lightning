@@ -107,7 +107,7 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
 - **Value:** high (new users hit silent failures otherwise)
 - **Evidence:** Today `AppDelegate.applicationDidFinishLaunching` calls `AXIsProcessTrustedWithOptions(prompt: true)` and that's it. Microphone is requested lazily by the audio engine, Input Monitoring is never explicitly requested (the NSEvent global monitor silently no-ops until granted), Screen Recording only matters when `useScreenContext` is on. First-launch users see a hotkey that doesn't fire and have no idea why. Claudia (archived) shipped a clean `PermissionsManager` + `OnboardingWindow` pattern that this can be ported from.
 - **Scope:** New `Services/PermissionsManager.swift` (Microphone / Input Monitoring / Accessibility / Screen Recording statuses + request actions + a `PermissionStatusPoller` that re-reads every 1s). New `UI/OnboardingWindow.swift` (480×600 SwiftUI sheet — bolt icon, one row per permission with status + Grant button). AppDelegate auto-shows on launch when any required permission is missing or `didCompleteOnboarding == false`. StatusBarController gets a "Setup & Permissions…" menu item to re-open. ~450 LOC new.
-- **Status:** done (commit <pending>) — all four permissions covered, auto-shows when missing, dismissible, status-bar re-entry. swift build green.
+- **Status:** done (commit 776bf15) — all four permissions covered, auto-shows when missing, dismissible, status-bar re-entry. swift build green.
 
 ## B-011 — Tap-to-toggle hotkey mode
 
@@ -115,4 +115,4 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
 - **Value:** medium
 - **Evidence:** Today the only way to enter hands-free locked recording is the quick double-tap path in `AppDelegate.onHotkeyPress` (first press = listening, second press within 0.5s = lock, second press > 0.5s after = stop). Users who want a Wispr-Flow-like "tap once to start, tap again to stop" workflow have to learn the double-tap muscle memory or just hold the key. User asked for a setting to make a single short press behave like "click to start, click to stop".
 - **Scope:** Add `hotkeyTapToToggle: Bool` to AppSettings (default false). When true: a quick press from idle enters `.recording` directly (skip `.listening` debounce). Subsequent press stops. Held keys still behave as PTT (release → stop) so existing users aren't disrupted. Surfaces as a row in Settings → General (under Shortcuts). ~30 LOC.
-- **Status:** proposed
+- **Status:** done (commit <pending>) — `hotkeyTapToToggle` setting, lock-on-quick-release path in `onHotkeyRelease`, Shortcuts panel toggle row. PTT (hold) behavior unchanged when the setting is off.

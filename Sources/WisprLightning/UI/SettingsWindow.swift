@@ -423,6 +423,15 @@ private struct ShortcutsDetail: View {
                 Text("Modifier keys work as hold-to-talk. Regular keys use press-to-toggle.")
                     .font(.subheadline)
                     .foregroundStyle(.tertiary)
+
+                Divider()
+
+                SettingsToggleRow(
+                    "Tap to start, tap to stop",
+                    description: "A quick press starts hands-free recording immediately; press again to finish. Holding still works as push-to-talk.",
+                    isOn: $vm.hotkeyTapToToggle
+                )
+                .onChange(of: vm.hotkeyTapToToggle) { _ in vm.saveHotkeyTapToToggle() }
             }
             .padding(Theme.Spacing.medium)
         }
@@ -1101,6 +1110,7 @@ class SettingsViewModel: ObservableObject {
 
     @Published var isCapturingShortcut = false
     @Published var hotkeyLabels: [String] = []
+    @Published var hotkeyTapToToggle: Bool
     @Published var selectedMicUID: String?
     @Published var keepMicrophoneActive: Bool
     @Published var selectedLanguages: Set<String>
@@ -1305,6 +1315,7 @@ class SettingsViewModel: ObservableObject {
         self.useAccessibilityContext = settings.useAccessibilityContext
         self.shareUsageData = settings.shareUsageData
         self.hotkeyLabels = settings.hotkeyLabels.isEmpty ? ["Left Control"] : settings.hotkeyLabels
+        self.hotkeyTapToToggle = settings.hotkeyTapToToggle
 
         // Polish
         self.polishEnabled = settings.polishEnabled
@@ -1400,6 +1411,11 @@ class SettingsViewModel: ObservableObject {
 
     func refreshMicDevices() {
         micDevices = AudioRecorder.listInputDevices()
+    }
+
+    func saveHotkeyTapToToggle() {
+        settings.hotkeyTapToToggle = hotkeyTapToToggle
+        settings.save()
     }
 
     func saveMicSelection() {
