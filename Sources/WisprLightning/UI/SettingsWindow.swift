@@ -751,14 +751,37 @@ private struct ProviderDetail: View {
                 .font(.callout)
                 .foregroundColor(.secondary)
 
-            Picker("Provider", selection: $vm.activeVendor) {
-                ForEach(DictationVendor.allCases, id: \.rawValue) { vendor in
-                    Text(vendor.displayName).tag(vendor.rawValue)
+            HStack(alignment: .center, spacing: 10) {
+                Text("1.")
+                    .font(.body.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, alignment: .trailing)
+
+                Picker("Provider", selection: $vm.activeVendor) {
+                    ForEach(DictationVendor.allCases, id: \.rawValue) { vendor in
+                        Text(vendor.displayName).tag(vendor.rawValue)
+                    }
                 }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: 280, alignment: .leading)
+                .onChange(of: vm.activeVendor) { _ in vm.saveActiveVendor() }
+
+                Spacer()
+
+                // Move-down on the primary swaps it with chain[0] (or appends
+                // if the chain is empty). Keeps the whole list reorderable.
+                Button { vm.demotePrimary() } label: {
+                    Image(systemName: "chevron.down")
+                }
+                .buttonStyle(.borderless)
+                .help(vm.fallbackChain.isEmpty
+                      ? "Move primary down (appends a new fallback step)"
+                      : "Move primary down — swap with the first fallback")
             }
-            .pickerStyle(.menu)
-            .frame(maxWidth: 360, alignment: .leading)
-            .onChange(of: vm.activeVendor) { _ in vm.saveActiveVendor() }
+            .padding(10)
+            .background(Color(NSColor.controlBackgroundColor))
+            .cornerRadius(8)
 
             Divider()
 
@@ -812,7 +835,15 @@ private struct ProviderDetail: View {
                             vm.updateFallbackStepModel(at: index, model: newModel)
                         },
                         onRemove: { vm.removeFallbackStep(at: index) },
-                        onMoveUp: index > 0 ? { vm.moveFallbackStep(from: index, to: index - 1) } : nil,
+                        // Chain row 0's Move Up swaps with the primary. Later
+                        // rows just reorder within the chain.
+                        onMoveUp: {
+                            if index == 0 {
+                                vm.promoteToPrimary(at: 0)
+                            } else {
+                                vm.moveFallbackStep(from: index, to: index - 1)
+                            }
+                        },
                         onMoveDown: index < vm.fallbackChain.count - 1 ? { vm.moveFallbackStep(from: index, to: index + 2) } : nil
                     )
                 }
@@ -1675,6 +1706,66 @@ class SettingsViewModel: ObservableObject {
         let insertAt = dst > src ? dst - 1 : dst
         fallbackChain.insert(step, at: insertAt)
         saveFallbackChain()
+    }
+
+    /// Promote a chain step into the primary slot, demoting the current
+    /// primary into that step's old position. Lets the user reorder the
+    /// whole list — including row #1 — without a separate "make primary"
+    /// affordance.
+    func promoteToPrimary(at chainIndex: Int) {
+        guard fallbackChain.indices.contains(chainIndex) else { return }
+        let promoted = fallbackChain[chainIndex]
+
+        // Capture the old primary as a chain step. Carry its OpenRouter model
+        // override only if it actually was OpenRouter — otherwise the field
+        // is meaningless and would leak into a different vendor's slot.
+        let demoted = FallbackStep(
+            vendor: activeVendor,
+            openRouterModel: activeVendor == DictationVendor.openRouter.rawValue ? openRouterModel : nil
+        )
+        fallbackChain[chainIndex] = demoted
+
+        // Promote the chain step. If it carried its own OpenRouter model,
+        // adopt that as the primary model so the dropdown reflects it.
+        activeVendor = promoted.vendor
+        if promoted.vendor == DictationVendor.openRouter.rawValue,
+           let m = promoted.openRouterModel, !m.isEmpty {
+            openRouterModel = m
+        }
+
+        settings.activeVendor = activeVendor
+        settings.openRouterModel = openRouterModel
+        settings.fallbackChain = fallbackChain
+        settings.save()
+    }
+
+    /// Demote the primary into the chain — swaps with the existing chain[0]
+    /// (or appends if the chain is empty). Mirror of promoteToPrimary so
+    /// users can move the primary "down".
+    func demotePrimary() {
+        let demoted = FallbackStep(
+            vendor: activeVendor,
+            openRouterModel: activeVendor == DictationVendor.openRouter.rawValue ? openRouterModel : nil
+        )
+        if fallbackChain.isEmpty {
+            // Nothing to swap with — just append the old primary and pick a
+            // sane new primary (first vendor that isn't the old one).
+            let next = DictationVendor.allCases.first { $0.rawValue != activeVendor } ?? .openRouter
+            activeVendor = next.rawValue
+            fallbackChain.append(demoted)
+        } else {
+            let promoted = fallbackChain[0]
+            fallbackChain[0] = demoted
+            activeVendor = promoted.vendor
+            if promoted.vendor == DictationVendor.openRouter.rawValue,
+               let m = promoted.openRouterModel, !m.isEmpty {
+                openRouterModel = m
+            }
+        }
+        settings.activeVendor = activeVendor
+        settings.openRouterModel = openRouterModel
+        settings.fallbackChain = fallbackChain
+        settings.save()
     }
 
     func updateFallbackStepVendor(at index: Int, vendor: String) {
