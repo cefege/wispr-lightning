@@ -77,7 +77,14 @@ class AppSettings: Codable {
     /// When true, a quick press from idle enters hands-free locked recording
     /// directly; a second press stops it. Holding the key still works as PTT
     /// (release → stop) so existing muscle memory keeps working.
+    /// Kept as a stored bool for backward compat with old settings.json; new
+    /// code reads `hotkeyPressBehavior` and writes it instead.
     var hotkeyTapToToggle: Bool = false
+
+    /// Authoritative press behavior. "hold" = push-to-talk only, "toggle" =
+    /// tap-to-start + tap-to-stop (quick release locks recording immediately),
+    /// "legacy" = hold-or-double-tap-to-lock (original Lightning behavior).
+    var hotkeyPressBehavior: String = "legacy"
 
     // Natural Mode — type text character-by-character instead of pasting
     var naturalModeEnabled: Bool = false
@@ -118,6 +125,12 @@ class AppSettings: Codable {
         if settings.hotkeyKeyCodes.isEmpty && settings.hotkeyKeyCode != 0 {
             settings.hotkeyKeyCodes = [settings.hotkeyKeyCode]
             settings.hotkeyLabels = [settings.hotkeyLabel]
+        }
+        // One-time migration from the old hotkeyTapToToggle bool. Existing
+        // users who had it on stay on the toggle mode; everyone else stays on
+        // the legacy hold-or-double-tap-to-lock behavior they were used to.
+        if settings.hotkeyPressBehavior.isEmpty {
+            settings.hotkeyPressBehavior = settings.hotkeyTapToToggle ? "toggle" : "legacy"
         }
         return settings
     }

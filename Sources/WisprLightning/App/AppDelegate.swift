@@ -448,27 +448,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard recordingState == .listening else { return }
 
         let heldDuration = lastPressTime.map { Date().timeIntervalSince($0) } ?? 1.0
+        let behavior = settings.hotkeyPressBehavior
+
         if heldDuration >= AppDelegate.lockDebounceInterval {
-            // Long hold (PTT): stop after a short trailing buffer to capture tail-end of speech.
-            // Tap-to-toggle users still get PTT semantics when they actually hold the key.
+            // Long hold (PTT): stop after a short trailing buffer to capture
+            // tail-end of speech. Same across all behaviors — holding always
+            // behaves as push-to-talk.
             tapDelayTimer?.invalidate()
             tapDelayTimer = Timer.scheduledTimer(withTimeInterval: AppDelegate.trailingBufferInterval, repeats: false) { [weak self] _ in
                 guard let self = self, self.recordingState == .listening else { return }
                 self.stopRecordingSession()
             }
-        } else if settings.hotkeyTapToToggle {
-            // Quick tap in tap-to-toggle mode: lock immediately into hands-free
-            // recording. The next press stops it.
+            return
+        }
+
+        switch behavior {
+        case "hold":
+            // Quick tap in hold-only mode: end the recording immediately. No
+            // debounce wait, no locking — releasing the key always stops.
+            tapDelayTimer?.invalidate()
+            tapDelayTimer = nil
+            stopRecordingSession()
+
+        case "toggle":
+            // Quick tap: lock immediately into hands-free recording. Next
+            // press stops it.
             tapDelayTimer?.invalidate()
             tapDelayTimer = nil
             recordingState = .recording
             lastPressTime = Date()
             wLog("Recording locked — tap-to-toggle mode")
             recordingOverlay.showLocked()
-        } else {
-            // Quick tap (legacy double-tap-to-lock): wait for potential second
-            // press before stopping. Fire at exactly lockDebounceInterval from
-            // the first press so a quick 2nd press still wins.
+
+        default:
+            // "legacy" — wait for a potential 2nd press to lock. Fire at
+            // exactly lockDebounceInterval from the first press so a quick
+            // 2nd press wins.
             let remaining = AppDelegate.lockDebounceInterval - heldDuration
             tapDelayTimer?.invalidate()
             tapDelayTimer = Timer.scheduledTimer(withTimeInterval: remaining, repeats: false) { [weak self] _ in

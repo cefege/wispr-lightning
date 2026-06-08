@@ -305,6 +305,17 @@ class SettingsWindowController {
 private struct ShortcutsDetail: View {
     @ObservedObject var vm: SettingsViewModel
 
+    private func pressBehaviorHint(_ value: String) -> String {
+        switch value {
+        case "hold":
+            return "Recording lasts as long as the key is held. Releasing always ends it."
+        case "toggle":
+            return "Press once to start, press again to stop. Holding still works as push-to-talk."
+        default:
+            return "Quick tap waits for a second tap to lock hands-free. Hold longer than ~0.5s for push-to-talk."
+        }
+    }
+
     var body: some View {
         Text("Dictation Hotkeys")
             .font(.title3.weight(.semibold))
@@ -342,14 +353,103 @@ private struct ShortcutsDetail: View {
 
                 Divider()
 
-                SettingsToggleRow(
-                    "Tap to start, tap to stop",
-                    description: "A quick press starts hands-free recording immediately; press again to finish. Holding still works as push-to-talk.",
-                    isOn: $vm.hotkeyTapToToggle
-                )
-                .onChange(of: vm.hotkeyTapToToggle) { _ in vm.saveHotkeyTapToToggle() }
+                HotkeyConflictTester(expectedKeyCodes: vm.hotkeyKeyCodesSet)
+
+                Text("Some hotkeys are claimed by macOS or other apps (e.g. Fn opens dictation; ⌥-space is Spotlight on some configs). If your hotkey is intercepted, Lightning won't see the press — pick something else.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Press behavior").font(.subheadline.weight(.medium))
+                    Picker("Press behavior", selection: $vm.hotkeyPressBehavior) {
+                        Text("Hold to talk").tag("hold")
+                        Text("Tap to start, tap to stop").tag("toggle")
+                        Text("Hold or double-tap to lock (legacy)").tag("legacy")
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.radioGroup)
+                    .onChange(of: vm.hotkeyPressBehavior) { _ in vm.saveHotkeyPressBehavior() }
+
+                    Text(pressBehaviorHint(vm.hotkeyPressBehavior))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(Theme.Spacing.medium)
+        }
+    }
+}
+
+/// Lightweight live key listener inside Settings. When the user focuses the
+/// "Test your hotkey" prompt, an NSEvent local monitor watches the next
+/// flagsChanged / keyDown event and flashes feedback. If the configured
+/// hotkey is intercepted by another app or the OS, the user sees the
+/// prompt stay quiet and knows to pick something else.
+private struct HotkeyConflictTester: View {
+    let expectedKeyCodes: Set<UInt16>
+    @State private var lastSeen: String? = nil
+    @State private var matchedAt: Date? = nil
+    @State private var monitor: Any? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Test your hotkey")
+                .font(.subheadline.weight(.medium))
+            HStack(spacing: 10) {
+                ZStack {
+                    Capsule()
+                        .fill(matched ? Color.green.opacity(0.18) : Color.secondary.opacity(0.10))
+                        .frame(width: 220, height: 28)
+                    Text(label)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(matched ? .green : .secondary)
+                }
+                if matched {
+                    Image(systemName: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                }
+            }
+        }
+        .onAppear { install() }
+        .onDisappear { uninstall() }
+    }
+
+    private var matched: Bool {
+        guard let ts = matchedAt else { return false }
+        return Date().timeIntervalSince(ts) < 1.5
+    }
+
+    private var label: String {
+        if let seen = lastSeen { return seen }
+        return "Press your hotkey to confirm Lightning sees it…"
+    }
+
+    private func install() {
+        uninstall()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { event in
+            let code = event.keyCode
+            let name = HotkeyListener.keycodeLabels[code] ?? "Key \(code)"
+            if expectedKeyCodes.contains(code) {
+                DispatchQueue.main.async {
+                    lastSeen = "Detected: \(name)"
+                    matchedAt = Date()
+                }
+            } else {
+                DispatchQueue.main.async {
+                    lastSeen = "Saw \(name) (not your bound hotkey)"
+                }
+            }
+            return event
+        }
+    }
+
+    private func uninstall() {
+        if let m = monitor {
+            NSEvent.removeMonitor(m)
+            monitor = nil
         }
     }
 }
@@ -670,6 +770,7 @@ private struct ProviderDetail: View {
                 FallbackStepRow(
                     index: index,
                     step: step,
+                    session: session,
                     models: vm.openRouterModelList,
                     modelListState: vm.openRouterModelListState,
                     onChangeVendor: { newVendor in
@@ -708,15 +809,22 @@ private struct ProviderDetail: View {
                 .frame(width: 26, alignment: .trailing)
 
             VStack(alignment: .leading, spacing: 8) {
-                Picker("Vendor", selection: $vm.activeVendor) {
-                    ForEach(DictationVendor.allCases, id: \.rawValue) { vendor in
-                        Text(vendor.displayName).tag(vendor.rawValue)
+                HStack(spacing: 8) {
+                    Picker("Vendor", selection: $vm.activeVendor) {
+                        ForEach(DictationVendor.allCases, id: \.rawValue) { vendor in
+                            Text(vendor.displayName).tag(vendor.rawValue)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 280, alignment: .leading)
+                    .onChange(of: vm.activeVendor) { _ in vm.saveActiveVendor() }
+
+                    VendorReadinessBadge(
+                        vendor: DictationVendor(rawValue: vm.activeVendor) ?? .wisprFlow,
+                        session: session
+                    )
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: 280, alignment: .leading)
-                .onChange(of: vm.activeVendor) { _ in vm.saveActiveVendor() }
 
                 if vm.activeVendor == DictationVendor.openRouter.rawValue {
                     Picker("Model", selection: $vm.openRouterModel) {
@@ -755,9 +863,35 @@ private struct ProviderDetail: View {
 
 }
 
+/// Small warning chip next to a vendor picker when that vendor lacks the
+/// credentials it needs to actually run a dictation. Renders nothing when
+/// the vendor is ready, so callers can splat `VendorReadinessBadge(...)`
+/// unconditionally into a layout.
+struct VendorReadinessBadge: View {
+    let vendor: DictationVendor
+    let session: Session
+
+    static func make(vendor: DictationVendor, session: Session) -> VendorReadinessBadge {
+        return VendorReadinessBadge(vendor: vendor, session: session)
+    }
+
+    var body: some View {
+        if !vendor.isReady(session: session) {
+            Label("Not signed in", systemImage: "exclamationmark.triangle.fill")
+                .font(.caption2)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.orange.opacity(0.18), in: Capsule())
+                .foregroundStyle(.orange)
+                .help("Set up this vendor in the Accounts tab.")
+        }
+    }
+}
+
 private struct FallbackStepRow: View {
     let index: Int
     let step: FallbackStep
+    let session: Session
     let models: [OpenRouterAudioModel]
     let modelListState: SettingsViewModel.OpenRouterModelListState
     let onChangeVendor: (String) -> Void
@@ -774,17 +908,24 @@ private struct FallbackStepRow: View {
                 .frame(width: 26, alignment: .trailing)
 
             VStack(alignment: .leading, spacing: 8) {
-                Picker("Vendor", selection: Binding(
-                    get: { step.vendor },
-                    set: { onChangeVendor($0) }
-                )) {
-                    ForEach(DictationVendor.allCases, id: \.rawValue) { v in
-                        Text(v.displayName).tag(v.rawValue)
+                HStack(spacing: 8) {
+                    Picker("Vendor", selection: Binding(
+                        get: { step.vendor },
+                        set: { onChangeVendor($0) }
+                    )) {
+                        ForEach(DictationVendor.allCases, id: \.rawValue) { v in
+                            Text(v.displayName).tag(v.rawValue)
+                        }
                     }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 280, alignment: .leading)
+
+                    VendorReadinessBadge(
+                        vendor: DictationVendor(rawValue: step.vendor) ?? .wisprFlow,
+                        session: session
+                    )
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: 280, alignment: .leading)
 
                 if step.vendor == DictationVendor.openRouter.rawValue {
                     Picker("Model", selection: Binding(
@@ -1390,8 +1531,11 @@ class SettingsViewModel: ObservableObject {
     let settings: AppSettings
 
     @Published var isCapturingShortcut = false
+    /// Convenience for UI live tests — the live set of bound dictation keycodes.
+    var hotkeyKeyCodesSet: Set<UInt16> { Set(settings.hotkeyKeyCodes) }
     @Published var hotkeyLabels: [String] = []
     @Published var hotkeyTapToToggle: Bool
+    @Published var hotkeyPressBehavior: String
     @Published var selectedMicUID: String?
     @Published var keepMicrophoneActive: Bool
     @Published var selectedLanguages: Set<String>
@@ -1607,6 +1751,9 @@ class SettingsViewModel: ObservableObject {
         self.shareUsageData = settings.shareUsageData
         self.hotkeyLabels = settings.hotkeyLabels.isEmpty ? ["Left Control"] : settings.hotkeyLabels
         self.hotkeyTapToToggle = settings.hotkeyTapToToggle
+        self.hotkeyPressBehavior = settings.hotkeyPressBehavior.isEmpty
+            ? (settings.hotkeyTapToToggle ? "toggle" : "legacy")
+            : settings.hotkeyPressBehavior
 
         // Polish
         self.polishEnabled = settings.polishEnabled
@@ -1862,8 +2009,11 @@ class SettingsViewModel: ObservableObject {
         micDevices = AudioRecorder.listInputDevices()
     }
 
-    func saveHotkeyTapToToggle() {
-        settings.hotkeyTapToToggle = hotkeyTapToToggle
+    func saveHotkeyPressBehavior() {
+        settings.hotkeyPressBehavior = hotkeyPressBehavior
+        // Keep the legacy bool in sync so old code paths still work if they
+        // happen to read it.
+        settings.hotkeyTapToToggle = (hotkeyPressBehavior == "toggle")
         settings.save()
     }
 

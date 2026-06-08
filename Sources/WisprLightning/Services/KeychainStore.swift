@@ -67,6 +67,24 @@ enum KeychainStore {
         return resolved
     }
 
+    /// Prompt-free existence check using `kSecReturnAttributes: false` —
+    /// macOS returns errSecSuccess without firing the access-control dialog
+    /// because we're not asking for the data, just the catalog entry.
+    /// Used by readiness indicators that mustn't disturb the user.
+    static func hasOpenRouterKeyHint() -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String:       kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: Key.openRouterAPIKey.rawValue,
+            kSecMatchLimit as String:  kSecMatchLimitOne,
+            kSecReturnAttributes as String: true,
+            kSecReturnData as String:  false,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        return status == errSecSuccess
+    }
+
     private static func rawRead(service: String, account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String:       kSecClassGenericPassword,

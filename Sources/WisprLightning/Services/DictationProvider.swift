@@ -14,6 +14,39 @@ enum DictationVendor: String, CaseIterable {
         case .claudeVoice: return "Claude Voice"
         }
     }
+
+    /// Lightweight, prompt-free check that this vendor has the credentials it
+    /// needs to actually run a dictation. Used by the Provider chain UI to
+    /// surface "Not signed in" badges before the first failed transcription.
+    /// Conservative: returns true unless we can prove the vendor is unauth'd.
+    func isReady(session: Session) -> Bool {
+        switch self {
+        case .wisprFlow:
+            return session.isValid
+        case .openRouter:
+            return SecretsStore.has(.openRouterAPIKey)
+                || KeychainStore.hasOpenRouterKeyHint()
+                || ProcessInfo.processInfo.environment["WISPR_LIGHTNING_OPENROUTER_KEY"]?.isEmpty == false
+        case .claudeVoice:
+            // No prompt-free way to check the upstream Claude Code item, but
+            // if the user has run `claude /login` the credentials file
+            // exists at a known path. Best-effort indicator.
+            let path = NSHomeDirectory() + "/.config/claude/credentials.json"
+            return FileManager.default.fileExists(atPath: path)
+                || ClaudeCodeCredentialFileLikelyExists()
+        }
+    }
+}
+
+/// Some claude CLI versions keep credentials in the Keychain only, not on disk.
+/// We can't probe the Keychain without prompting, so fall back to "unknown ready".
+/// Returns true when we can't be confident the vendor is unready — i.e. when
+/// absence of disk file isn't proof.
+private func ClaudeCodeCredentialFileLikelyExists() -> Bool {
+    // Conservative: we don't have a prompt-free signal, so don't claim "not
+    // ready" — show the Claude Voice row without a warning. The user finds
+    // out via the Check button if they want to be sure.
+    return true
 }
 
 /// Final context for a dictation. Some providers (Wispr Flow) send this in
