@@ -127,10 +127,6 @@ struct AllSettingsView: View {
     @StateObject private var historyVM: HistoryViewModel
     @StateObject private var dictionaryVM: DictionaryViewModel
     @StateObject private var notesVM: NotesViewModel
-    @State private var isSignedIn = false
-    @State private var email = ""
-    @State private var displayName = ""
-    @State private var avatarURL: String? = nil
     @State private var selectedSection: SettingsSection = .general
 
     init(vm: SettingsViewModel, session: Session, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore) {
@@ -202,8 +198,6 @@ struct AllSettingsView: View {
                         VStack(alignment: .leading, spacing: Theme.Spacing.large) {
                             switch selectedSection {
                             case .general:
-                                AccountSection(isSignedIn: isSignedIn, displayName: displayName, email: email, avatarURL: avatarURL, session: session)
-                                Divider()
                                 ShortcutsDetail(vm: vm)
                                 Divider()
                                 MicrophoneDetail(vm: vm)
@@ -214,7 +208,7 @@ struct AllSettingsView: View {
                                 Divider()
                                 PersonalizationDetail(vm: vm)
                             case .provider:
-                                ProviderDetail(vm: vm)
+                                ProviderDetail(vm: vm, session: session)
                             case .polish:
                                 PolishDetail(vm: vm)
                             case .privacy:
@@ -233,10 +227,6 @@ struct AllSettingsView: View {
             .navigationTitle(selectedSection.title)
         }
         .removeSidebarToggleIfAvailable()
-        .onAppear { refreshAccount() }
-        .onReceive(NotificationCenter.default.publisher(for: .sessionChanged)) { _ in
-            refreshAccount()
-        }
     }
 
     @ViewBuilder
@@ -248,16 +238,6 @@ struct AllSettingsView: View {
         }
         .tag(section)
         .padding(.vertical, 1)
-    }
-
-    private func refreshAccount() {
-        isSignedIn = session.isValid
-        email = session.userEmail ?? ""
-        avatarURL = session.avatarURL
-        let first = session.userFirstName ?? ""
-        let last = session.userLastName ?? ""
-        let full = [first, last].filter { !$0.isEmpty }.joined(separator: " ")
-        displayName = full.isEmpty ? email : full
     }
 }
 
@@ -312,75 +292,6 @@ class SettingsWindowController {
         self.window = w
         w.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-    }
-}
-
-// MARK: - Account Section
-
-private struct AccountSection: View {
-    let isSignedIn: Bool
-    let displayName: String
-    let email: String
-    let avatarURL: String?
-    let session: Session
-
-    var body: some View {
-        Text("Account")
-            .font(.title3.weight(.semibold))
-
-        GroupBox {
-            VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
-                if isSignedIn {
-                    HStack(spacing: Theme.Spacing.medium) {
-                        Group {
-                            if let urlString = avatarURL, let url = URL(string: urlString) {
-                                AsyncImage(url: url) { image in
-                                    image.resizable().scaledToFill()
-                                } placeholder: {
-                                    Image(systemName: "person.crop.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(width: 32, height: 32)
-                                .clipShape(Circle())
-                            } else {
-                                Image(systemName: "person.crop.circle.fill")
-                                    .font(.title2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        VStack(alignment: .leading, spacing: 2) {
-                            if !displayName.isEmpty && displayName != email {
-                                Text(displayName)
-                                    .font(.body.weight(.medium))
-                            }
-                            Text(email)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("Sign Out") {
-                            session.clear()
-                            NotificationCenter.default.post(name: .sessionChanged, object: nil)
-                        }
-                        .controlSize(.small)
-                    }
-                } else {
-                    HStack(spacing: Theme.Spacing.medium) {
-                        Image(systemName: "person.crop.circle.badge.questionmark")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
-                        Text("Not signed in")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Sign In with Google") {
-                            AuthService.signInWithBrowser()
-                        }
-                        .controlSize(.small)
-                    }
-                }
-            }
-            .padding(Theme.Spacing.medium)
-        }
     }
 }
 
@@ -736,6 +647,7 @@ private struct DictationDetail: View {
 
 private struct ProviderDetail: View {
     @ObservedObject var vm: SettingsViewModel
+    let session: Session
     @State private var revealKey = false
     @State private var testStatus: String = ""
     @State private var testIsError = false
@@ -789,9 +701,7 @@ private struct ProviderDetail: View {
                 openRouterPanel
                     .onAppear { vm.loadOpenRouterModels() }
             } else if vm.activeVendor == DictationVendor.wisprFlow.rawValue {
-                Text("Signed-in Wispr Flow account is used. Manage sign-in from the General tab.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
+                WisprFlowAccountPanel(session: session)
             } else if vm.activeVendor == DictationVendor.claudeVoice.rawValue {
                 claudeVoicePanel
             }
@@ -1055,6 +965,85 @@ private struct FallbackStepRow: View {
         .padding(10)
         .background(Color(NSColor.controlBackgroundColor))
         .cornerRadius(8)
+    }
+}
+
+/// Wispr Flow's Supabase OAuth lives behind the same shape as OpenRouter's
+/// BYO key and Claude Voice's CLI keychain entry — it's per-vendor auth,
+/// not a universal app account, so it belongs in the Provider tab.
+private struct WisprFlowAccountPanel: View {
+    let session: Session
+    @State private var isSignedIn = false
+    @State private var displayName = ""
+    @State private var email = ""
+    @State private var avatarURL: String? = nil
+
+    var body: some View {
+        Text("Sign in with your Wispr Flow account to use Flow's WebSocket transcription pipeline. Auth is shared with the official Wispr Flow desktop app via a Supabase session file.")
+            .font(.callout)
+            .foregroundColor(.secondary)
+
+        GroupBox {
+            VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
+                if isSignedIn {
+                    HStack(spacing: Theme.Spacing.medium) {
+                        Group {
+                            if let urlString = avatarURL, let url = URL(string: urlString) {
+                                AsyncImage(url: url) { image in
+                                    image.resizable().scaledToFill()
+                                } placeholder: {
+                                    Image(systemName: "person.crop.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .frame(width: 32, height: 32)
+                                .clipShape(Circle())
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            if !displayName.isEmpty && displayName != email {
+                                Text(displayName).font(.body.weight(.medium))
+                            }
+                            Text(email).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Sign Out") {
+                            session.clear()
+                            NotificationCenter.default.post(name: .sessionChanged, object: nil)
+                        }
+                        .controlSize(.small)
+                    }
+                } else {
+                    HStack(spacing: Theme.Spacing.medium) {
+                        Image(systemName: "person.crop.circle.badge.questionmark")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                        Text("Not signed in").foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Sign In with Google") {
+                            AuthService.signInWithBrowser()
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            }
+            .padding(Theme.Spacing.medium)
+        }
+        .onAppear { refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .sessionChanged)) { _ in refresh() }
+    }
+
+    private func refresh() {
+        isSignedIn = session.isValid
+        email = session.userEmail ?? ""
+        avatarURL = session.avatarURL
+        let first = session.userFirstName ?? ""
+        let last = session.userLastName ?? ""
+        let full = [first, last].filter { !$0.isEmpty }.joined(separator: " ")
+        displayName = full.isEmpty ? email : full
     }
 }
 
