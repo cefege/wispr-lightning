@@ -2,6 +2,16 @@
 
 A macOS dictation app. Push-to-talk hotkey records audio, sends it to a backend for transcription, then types or pastes the result into the focused app. Positioned against Wispr Flow.
 
+**One app, three vendors.** Lightning supports three transcription backends behind a `DictationProvider` protocol (see `Services/DictationProvider.swift`):
+
+| Vendor | Auth | Transport | Notes |
+| --- | --- | --- | --- |
+| `wispr_flow` | Supabase OAuth (`Session`) | WebSocket — buffered upload at stop | Original Lightning backend. Only vendor with Polish access. |
+| `openrouter` | BYO API key in Keychain (`KeychainStore`) | HTTPS — inline WAV via chat completions | Gemini multimodal. Costs user-borne. |
+| `claude_voice` | `Claude Code-credentials` Keychain entry, owned by `claude` CLI | WebSocket — live PCM streaming | The only true streaming provider. 8s keepalive. Token expiry → "Run `claude /login`". |
+
+The active vendor is chosen in `Settings → Provider` (also a status-bar submenu). The polish UI tab + hotkey are gated on `session.canUsePolish(activeVendor:)` — visible only when Flow is the active vendor AND a Flow session is loaded. Files: `Services/Providers/{WisprFlowProvider,OpenRouterProvider,ClaudeVoiceProvider}.swift`.
+
 ## Project at a glance
 
 - **Build system:** Swift Package Manager. `swift build` for debug, `swift build -c release` for shipping.

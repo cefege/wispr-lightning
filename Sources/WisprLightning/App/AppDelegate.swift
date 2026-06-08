@@ -1025,8 +1025,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .openRouter:
             return OpenRouterProvider(settings: settings)
         case .claudeVoice:
-            // Falls back to Flow until B-009 lands the streaming impl.
-            return WisprFlowProvider(session: session, settings: settings)
+            return ClaudeVoiceProvider(settings: settings)
         }
     }
 
