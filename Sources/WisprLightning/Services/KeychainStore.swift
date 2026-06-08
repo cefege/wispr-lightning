@@ -49,17 +49,15 @@ enum KeychainStore {
         }
 
         if let resolved {
-            // Rewrite the item back to our own service. If we read it from
-            // the legacy service this is the migration step. If we read it
-            // from our own service it's an ownership-rotation step: the
-            // entry might have been written by a prior unsigned / differently
-            // signed build whose code identity no longer matches, which is
-            // exactly what triggers the "enter your login password" prompt
-            // every launch. Rewriting under the current code identity makes
-            // the next launch's read silent.
-            _ = writeRaw(service: service, account: key.rawValue, value: resolved)
+            // Only rewrite when migrating from the legacy service. Rewriting
+            // on every read causes the keychain-prompt loop: each
+            // SecItemDelete + SecItemAdd creates a brand-new keychain item
+            // with no "Always Allow" history, so the next launch prompts
+            // again, we rewrite again, and the loop continues forever.
+            // Leaving the existing item alone lets macOS remember the
+            // user's "Always Allow" decision across launches.
             if cameFromLegacy {
-                // Also drop the legacy entry so we don't re-prompt on it later.
+                _ = writeRaw(service: service, account: key.rawValue, value: resolved)
                 _ = writeRaw(service: legacyService, account: key.rawValue, value: nil)
             }
             cacheLock.lock()

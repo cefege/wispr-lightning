@@ -901,6 +901,7 @@ private struct OpenRouterAccountPanel: View {
         Text("BYO key. You pay OpenRouter directly. Get a key at openrouter.ai/keys.")
             .font(.callout)
             .foregroundColor(.secondary)
+            .onAppear { vm.loadOpenRouterAPIKeyIfNeeded() }
 
         HStack(spacing: 8) {
             Group {
@@ -1622,7 +1623,10 @@ class SettingsViewModel: ObservableObject {
         // Provider
         self.activeVendor = settings.activeVendor
         self.openRouterModel = settings.openRouterModel
-        self.openRouterAPIKey = KeychainStore.read(.openRouterAPIKey) ?? ""
+        // Defer the Keychain read until the user actually opens the OpenRouter
+        // panel — opening Settings shouldn't trigger a password prompt if the
+        // user only came to change a hotkey or pick a vendor.
+        self.openRouterAPIKey = ""
         self.fallbackChain = settings.fallbackChain
 
         refreshMicDevices()
@@ -1648,6 +1652,16 @@ class SettingsViewModel: ObservableObject {
             KeychainStore.write(.openRouterAPIKey, trimmed)
         }
         NotificationCenter.default.post(name: .settingsChanged, object: settings)
+    }
+
+    /// Load the OpenRouter API key from the Keychain on demand. Called when
+    /// the user actually opens the OpenRouter Accounts panel. Idempotent —
+    /// the underlying KeychainStore has its own in-process cache.
+    private var openRouterKeyLoaded = false
+    func loadOpenRouterAPIKeyIfNeeded() {
+        guard !openRouterKeyLoaded else { return }
+        openRouterKeyLoaded = true
+        openRouterAPIKey = KeychainStore.read(.openRouterAPIKey) ?? ""
     }
 
     // MARK: - Fallback chain
