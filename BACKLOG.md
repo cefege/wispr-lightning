@@ -123,7 +123,7 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
 - **Value:** medium
 - **Evidence:** Primary + chain rows in Settings → Provider always show the picker cheerfully, even when the chosen vendor has no auth credentials. Result: first dictation fails with a confusing error.
 - **Scope:** Add `DictationVendor.isReady(session:)` (Flow: session.isValid; OpenRouter: SecretsStore.has / Keychain hint; Claude Voice: best-effort file probe). Render a "Not signed in" badge next to misconfigured vendor pickers via a new `VendorReadinessBadge` view. Prompt-free check via `kSecReturnData: false`.
-- **Status:** done (commit pending)
+- **Status:** done (commit d0370a5)
 
 ## B-014 — Hotkey conflict test field
 
@@ -131,7 +131,7 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
 - **Value:** medium
 - **Evidence:** If a user binds Lightning to a hotkey that's claimed by macOS or another app (Fn opens dictation, ⌥-space is Spotlight, etc.), Lightning silently doesn't fire. New users can't tell whether their key is bound or hijacked.
 - **Scope:** `HotkeyConflictTester` SwiftUI view inside Shortcuts panel — NSEvent local monitor watches flagsChanged + keyDown, flashes "Detected: X" with a green check when the configured key arrives. Caveat text under the test field naming common conflicts.
-- **Status:** done (commit pending)
+- **Status:** done (commit d0370a5)
 
 ## B-015 — Unified press-behavior picker
 
@@ -139,7 +139,7 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
 - **Value:** medium
 - **Evidence:** B-011 added a single tap-to-toggle bool but the three press modes (hold-only PTT, tap-to-toggle, legacy hold-or-double-tap) are all useful and aren't discoverable from a single checkbox.
 - **Scope:** Replace `hotkeyTapToToggle` with `hotkeyPressBehavior: String` (default "legacy"), with values "hold" / "toggle" / "legacy". Migrate the bool on load. AppDelegate.onHotkeyRelease branches on the new field. Settings shows a radio-style picker with per-option hint text.
-- **Status:** done (commit pending)
+- **Status:** done (commit d0370a5)
 
 ## B-016 — Onboarding ends with vendor pick
 
@@ -147,7 +147,7 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
 - **Value:** high
 - **Evidence:** After Get Started in the onboarding wizard, the user lands on the menu bar icon with no idea how to actually use the app. They have to discover Settings → Accounts on their own.
 - **Scope:** Convert OnboardingView into a 3-step paged flow (permissions → mic test → vendor pick). Vendor pick step lets the user choose Wispr Flow / OpenRouter / Claude Voice as primary; selection writes to settings.activeVendor immediately. Sign-in still happens in Settings → Accounts (linked from the wizard finish CTA).
-- **Status:** done (commit pending)
+- **Status:** done (commit d0370a5)
 
 ## B-017 — Mic test step in onboarding
 
@@ -155,4 +155,4 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
 - **Value:** medium
 - **Evidence:** Microphone permission is granted in step 1 but the user doesn't know if the selected input device actually works until they try a real dictation and get "No signal" / empty transcript.
 - **Scope:** New `MicTestView` between permissions and vendor steps in the onboarding flow. Starts a temporary AudioRecorder, displays the live RMS level via `onLevelUpdate`, shows "Looks good" once level > threshold. Stops cleanly on disappear.
-- **Status:** done (commit pending)
+- **Status:** done (commit d0370a5)
