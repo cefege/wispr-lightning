@@ -45,7 +45,7 @@ private struct SettingsToggleRow: View {
 // MARK: - Settings Section Enum
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, dictation, provider, polish
+    case general, dictation, accounts, provider, polish
     case history, dictionary, notes
     case privacy, system
 
@@ -55,6 +55,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .dictation: return "Dictation"
+        case .accounts: return "Accounts"
         case .provider: return "Provider"
         case .polish: return "Polish"
         case .history: return "History"
@@ -69,6 +70,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape.fill"
         case .dictation: return "mic.fill"
+        case .accounts: return "person.crop.circle.fill"
         case .provider: return "antenna.radiowaves.left.and.right"
         case .polish: return "sparkles"
         case .history: return "clock.fill"
@@ -83,6 +85,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general, .system:    return Self.gradGray
         case .dictation, .privacy: return Self.gradBlue
+        case .accounts:            return Self.gradBlue
         case .provider:            return Self.gradGreen
         case .polish:              return Self.gradPurple
         case .history:             return Self.gradOrange
@@ -144,8 +147,8 @@ struct AllSettingsView: View {
     private var settingsGroup: [SettingsSection] {
         let vendor = DictationVendor(rawValue: vm.activeVendor) ?? .wisprFlow
         return session.canUsePolish(activeVendor: vendor)
-            ? [.general, .dictation, .provider, .polish]
-            : [.general, .dictation, .provider]
+            ? [.general, .dictation, .accounts, .provider, .polish]
+            : [.general, .dictation, .accounts, .provider]
     }
 
     var body: some View {
@@ -207,6 +210,8 @@ struct AllSettingsView: View {
                                 DictationDetail(vm: vm)
                                 Divider()
                                 PersonalizationDetail(vm: vm)
+                            case .accounts:
+                                AccountsDetail(vm: vm, session: session)
                             case .provider:
                                 ProviderDetail(vm: vm, session: session)
                             case .polish:
@@ -648,28 +653,62 @@ private struct DictationDetail: View {
 private struct ProviderDetail: View {
     @ObservedObject var vm: SettingsViewModel
     let session: Session
-    @State private var revealKey = false
-    @State private var testStatus: String = ""
-    @State private var testIsError = false
-    @State private var testing = false
 
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.large) {
-            Text("Transcription Provider")
+            Text("Transcription Chain")
                 .font(.title3.weight(.semibold))
 
-            Text("Choose which backend turns your audio into text. Switching providers takes effect on your next dictation.")
+            Text("Step 1 is your primary provider. If it fails with a hard error (auth, network, server, timeout), Lightning automatically retries the same audio against step 2, then step 3, and so on. Empty transcripts don't fall through. Set up vendor credentials in the Accounts tab.")
                 .font(.callout)
                 .foregroundColor(.secondary)
 
-            HStack(alignment: .center, spacing: 10) {
-                Text("1.")
-                    .font(.body.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .frame(width: 26, alignment: .trailing)
+            primaryRow
 
-                Picker("Provider", selection: $vm.activeVendor) {
+            ForEach(Array(vm.fallbackChain.enumerated()), id: \.element.id) { index, step in
+                FallbackStepRow(
+                    index: index,
+                    step: step,
+                    models: vm.openRouterModelList,
+                    modelListState: vm.openRouterModelListState,
+                    onChangeVendor: { newVendor in
+                        vm.updateFallbackStepVendor(at: index, vendor: newVendor)
+                    },
+                    onChangeModel: { newModel in
+                        vm.updateFallbackStepModel(at: index, model: newModel)
+                    },
+                    onRemove: { vm.removeFallbackStep(at: index) },
+                    onMoveUp: {
+                        if index == 0 {
+                            vm.promoteToPrimary(at: 0)
+                        } else {
+                            vm.moveFallbackStep(from: index, to: index - 1)
+                        }
+                    },
+                    onMoveDown: index < vm.fallbackChain.count - 1 ? { vm.moveFallbackStep(from: index, to: index + 2) } : nil
+                )
+            }
+
+            Button("+ Add fallback") { vm.addFallbackStep() }
+                .controlSize(.small)
+        }
+        .onAppear { vm.loadOpenRouterModels() }
+    }
+
+    /// Step 1 row — same layout as FallbackStepRow but tied to settings.activeVendor
+    /// and settings.openRouterModel, with only a Move-down button (you can't
+    /// remove the primary, and there's nothing above it to move into).
+    @ViewBuilder
+    private var primaryRow: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text("1.")
+                .font(.body.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 26, alignment: .trailing)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("Vendor", selection: $vm.activeVendor) {
                     ForEach(DictationVendor.allCases, id: \.rawValue) { vendor in
                         Text(vendor.displayName).tag(vendor.rawValue)
                     }
@@ -679,207 +718,41 @@ private struct ProviderDetail: View {
                 .frame(maxWidth: 280, alignment: .leading)
                 .onChange(of: vm.activeVendor) { _ in vm.saveActiveVendor() }
 
-                Spacer()
-
-                // Move-down on the primary swaps it with chain[0] (or appends
-                // if the chain is empty). Keeps the whole list reorderable.
-                Button { vm.demotePrimary() } label: {
-                    Image(systemName: "chevron.down")
-                }
-                .buttonStyle(.borderless)
-                .help(vm.fallbackChain.isEmpty
-                      ? "Move primary down (appends a new fallback step)"
-                      : "Move primary down — swap with the first fallback")
-            }
-            .padding(10)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(8)
-
-            Divider()
-
-            if vm.activeVendor == DictationVendor.openRouter.rawValue {
-                openRouterPanel
-                    .onAppear { vm.loadOpenRouterModels() }
-            } else if vm.activeVendor == DictationVendor.wisprFlow.rawValue {
-                WisprFlowAccountPanel(session: session)
-            } else if vm.activeVendor == DictationVendor.claudeVoice.rawValue {
-                claudeVoicePanel
-            }
-
-            Divider()
-
-            fallbackChainSection
-        }
-        .onAppear { vm.loadOpenRouterModels() }
-    }
-
-    @ViewBuilder
-    private var fallbackChainSection: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Fallback chain").font(.title3.weight(.semibold))
-                Spacer()
-                Button("+ Add fallback") { vm.addFallbackStep() }
-                    .controlSize(.small)
-            }
-            Text("If the primary provider fails (auth, network, server, timeout), Lightning automatically retries with the next step using the same audio. Empty transcripts don't trigger fallback.")
-                .font(.callout)
-                .foregroundColor(.secondary)
-
-            if vm.fallbackChain.isEmpty {
-                Text("No fallbacks configured — primary provider only.")
-                    .font(.callout)
-                    .foregroundColor(.secondary)
-                    .padding(.top, 4)
-            } else {
-                ForEach(Array(vm.fallbackChain.enumerated()), id: \.element.id) { index, step in
-                    FallbackStepRow(
-                        index: index,
-                        step: step,
-                        models: vm.openRouterModelList,
-                        modelListState: vm.openRouterModelListState,
-                        onChangeVendor: { newVendor in
-                            vm.updateFallbackStepVendor(at: index, vendor: newVendor)
-                        },
-                        onChangeModel: { newModel in
-                            vm.updateFallbackStepModel(at: index, model: newModel)
-                        },
-                        onRemove: { vm.removeFallbackStep(at: index) },
-                        // Chain row 0's Move Up swaps with the primary. Later
-                        // rows just reorder within the chain.
-                        onMoveUp: {
-                            if index == 0 {
-                                vm.promoteToPrimary(at: 0)
-                            } else {
-                                vm.moveFallbackStep(from: index, to: index - 1)
+                if vm.activeVendor == DictationVendor.openRouter.rawValue {
+                    Picker("Model", selection: $vm.openRouterModel) {
+                        if case .loaded = vm.openRouterModelListState {
+                            ForEach(vm.openRouterModelList) { m in
+                                Text(m.displayLabel).tag(m.id)
                             }
-                        },
-                        onMoveDown: index < vm.fallbackChain.count - 1 ? { vm.moveFallbackStep(from: index, to: index + 2) } : nil
-                    )
+                            if !vm.openRouterModelList.contains(where: { $0.id == vm.openRouterModel }) {
+                                Text("Custom: \(vm.openRouterModel)").tag(vm.openRouterModel)
+                            }
+                        } else {
+                            Text("Loading models…").tag("loading-placeholder").disabled(true)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 420, alignment: .leading)
+                    .onChange(of: vm.openRouterModel) { _ in vm.saveProviderSettings() }
                 }
             }
-        }
-    }
 
-    @ViewBuilder
-    private var openRouterPanel: some View {
-        Text("Wispr Lightning sends your audio to a Gemini multimodal model via OpenRouter. You pay OpenRouter directly. Get a key at openrouter.ai/keys.")
-            .font(.callout)
-            .foregroundColor(.secondary)
-
-        Text("OpenRouter API Key")
-            .font(.headline)
-
-        HStack(spacing: 8) {
-            Group {
-                if revealKey {
-                    TextField("sk-or-…", text: $vm.openRouterAPIKey)
-                } else {
-                    SecureField("sk-or-…", text: $vm.openRouterAPIKey)
-                }
-            }
-            .textFieldStyle(.roundedBorder)
-            .font(.system(.body, design: .monospaced))
-
-            Button {
-                revealKey.toggle()
-            } label: {
-                Image(systemName: revealKey ? "eye.slash" : "eye")
-            }
-            .help(revealKey ? "Hide key" : "Show key")
-        }
-
-        HStack(spacing: 10) {
-            Button {
-                vm.saveProviderSettings()
-                testStatus = "Saved. The next dictation will use this key."
-                testIsError = false
-            } label: {
-                Text("Save")
-            }
-
-            Button {
-                testing = true
-                testStatus = ""
-                vm.testOpenRouterConnection { ok, msg in
-                    testing = false
-                    testStatus = msg
-                    testIsError = !ok
-                }
-            } label: {
-                Text(testing ? "Testing…" : "Test connection")
-            }
-            .disabled(testing || vm.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-            if !testStatus.isEmpty {
-                Text(testStatus)
-                    .font(.callout)
-                    .foregroundColor(testIsError ? .red : .secondary)
-                    .lineLimit(2)
-            }
-        }
-
-        Divider()
-
-        HStack(alignment: .firstTextBaseline) {
-            Text("Model")
-                .font(.headline)
             Spacer()
-            switch vm.openRouterModelListState {
-            case .loading:
-                ProgressView().controlSize(.small)
-            case .loaded:
-                Button("Refresh") { vm.loadOpenRouterModels(force: true) }
-                    .controlSize(.small)
-            case .failed:
-                Button("Retry") { vm.loadOpenRouterModels(force: true) }
-                    .controlSize(.small)
-            case .idle:
-                EmptyView()
+
+            Button { vm.demotePrimary() } label: {
+                Image(systemName: "chevron.down")
             }
+            .buttonStyle(.borderless)
+            .help(vm.fallbackChain.isEmpty
+                  ? "Move primary down (appends a new fallback step)"
+                  : "Move primary down — swap with the first fallback")
         }
-
-        switch vm.openRouterModelListState {
-        case .idle, .loading:
-            Text("Loading audio-input models from openrouter.ai…")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        case .failed(let msg):
-            Text("Couldn't load model list — \(msg). You can still type a custom model id below.")
-                .font(.caption)
-                .foregroundColor(.red)
-        case .loaded:
-            Picker("Model", selection: $vm.openRouterModel) {
-                ForEach(vm.openRouterModelList) { model in
-                    Text(model.displayLabel).tag(model.id)
-                }
-                if !vm.openRouterModelList.contains(where: { $0.id == vm.openRouterModel }) {
-                    Text("Custom: \(vm.openRouterModel)").tag(vm.openRouterModel)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(maxWidth: 460, alignment: .leading)
-            .onChange(of: vm.openRouterModel) { _ in vm.saveProviderSettings() }
-            Text("\(vm.openRouterModelList.count) audio-capable models, cheapest first. Prices are per 1M tokens (input / output).")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-
-        TextField("Custom model id (e.g. google/gemini-2.5-flash)", text: $vm.openRouterModel)
-            .textFieldStyle(.roundedBorder)
-            .font(.system(.body, design: .monospaced))
-            .onSubmit { vm.saveProviderSettings() }
-
-        Text("Audio is sent inline as WAV. Both audio and the cleaned transcript count toward OpenRouter usage.")
-            .font(.caption)
-            .foregroundColor(.secondary)
+        .padding(10)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
     }
 
-    @ViewBuilder
-    private var claudeVoicePanel: some View {
-        ClaudeVoiceAuthRow()
-    }
 }
 
 private struct FallbackStepRow: View {
@@ -968,9 +841,121 @@ private struct FallbackStepRow: View {
     }
 }
 
+// MARK: - Accounts Detail
+
+/// One tab for all per-vendor credentials. Each vendor has its own card with
+/// its own sign-in / API-key / Keychain-check affordance. Setting up auth
+/// here is separate from arranging the chain in the Provider tab — letting
+/// the user prep credentials once, then mix and match in any order.
+private struct AccountsDetail: View {
+    @ObservedObject var vm: SettingsViewModel
+    let session: Session
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.large) {
+            Text("Accounts")
+                .font(.title3.weight(.semibold))
+
+            Text("Set up sign-in or API keys for each vendor here. Use the Provider tab to choose which one is active and arrange the fallback chain.")
+                .font(.callout)
+                .foregroundColor(.secondary)
+
+            vendorCard(title: DictationVendor.wisprFlow.displayName) {
+                WisprFlowAccountPanel(session: session)
+            }
+
+            vendorCard(title: DictationVendor.openRouter.displayName) {
+                OpenRouterAccountPanel(vm: vm)
+            }
+
+            vendorCard(title: DictationVendor.claudeVoice.displayName) {
+                ClaudeVoiceAuthRow()
+            }
+        }
+        .onAppear { vm.loadOpenRouterModels() }
+    }
+
+    @ViewBuilder
+    private func vendorCard<Content: View>(title: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
+            Text(title)
+                .font(.headline)
+            content()
+        }
+        .padding(Theme.Spacing.medium)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(10)
+    }
+}
+
+/// OpenRouter API key + Test connection. Lives in the Accounts tab; the
+/// per-step model picker lives next to its row in the Provider chain.
+private struct OpenRouterAccountPanel: View {
+    @ObservedObject var vm: SettingsViewModel
+    @State private var revealKey = false
+    @State private var testStatus = ""
+    @State private var testIsError = false
+    @State private var testing = false
+
+    var body: some View {
+        Text("BYO key. You pay OpenRouter directly. Get a key at openrouter.ai/keys.")
+            .font(.callout)
+            .foregroundColor(.secondary)
+
+        HStack(spacing: 8) {
+            Group {
+                if revealKey {
+                    TextField("sk-or-…", text: $vm.openRouterAPIKey)
+                } else {
+                    SecureField("sk-or-…", text: $vm.openRouterAPIKey)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .font(.system(.body, design: .monospaced))
+
+            Button {
+                revealKey.toggle()
+            } label: {
+                Image(systemName: revealKey ? "eye.slash" : "eye")
+            }
+            .help(revealKey ? "Hide key" : "Show key")
+        }
+
+        HStack(spacing: 10) {
+            Button {
+                vm.saveProviderSettings()
+                testStatus = "Saved."
+                testIsError = false
+            } label: {
+                Text("Save")
+            }
+
+            Button {
+                testing = true
+                testStatus = ""
+                vm.testOpenRouterConnection { ok, msg in
+                    testing = false
+                    testStatus = msg
+                    testIsError = !ok
+                }
+            } label: {
+                Text(testing ? "Testing…" : "Test connection")
+            }
+            .disabled(testing || vm.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if !testStatus.isEmpty {
+                Text(testStatus)
+                    .font(.callout)
+                    .foregroundColor(testIsError ? .red : .secondary)
+                    .lineLimit(2)
+            }
+        }
+    }
+}
+
 /// Wispr Flow's Supabase OAuth lives behind the same shape as OpenRouter's
 /// BYO key and Claude Voice's CLI keychain entry — it's per-vendor auth,
-/// not a universal app account, so it belongs in the Provider tab.
+/// not a universal app account, so it belongs in the Accounts tab.
 private struct WisprFlowAccountPanel: View {
     let session: Session
     @State private var isSignedIn = false
@@ -983,57 +968,54 @@ private struct WisprFlowAccountPanel: View {
             .font(.callout)
             .foregroundColor(.secondary)
 
-        GroupBox {
-            VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
-                if isSignedIn {
-                    HStack(spacing: Theme.Spacing.medium) {
-                        Group {
-                            if let urlString = avatarURL, let url = URL(string: urlString) {
-                                AsyncImage(url: url) { image in
-                                    image.resizable().scaledToFill()
-                                } placeholder: {
-                                    Image(systemName: "person.crop.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .frame(width: 32, height: 32)
-                                .clipShape(Circle())
-                            } else {
-                                Image(systemName: "person.crop.circle.fill")
-                                    .font(.title2)
-                                    .foregroundStyle(.secondary)
-                            }
+        if isSignedIn {
+            HStack(spacing: Theme.Spacing.medium) {
+                Group {
+                    if let urlString = avatarURL, let url = URL(string: urlString) {
+                        AsyncImage(url: url) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Image(systemName: "person.crop.circle.fill")
+                                .foregroundStyle(.secondary)
                         }
-                        VStack(alignment: .leading, spacing: 2) {
-                            if !displayName.isEmpty && displayName != email {
-                                Text(displayName).font(.body.weight(.medium))
-                            }
-                            Text(email).font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("Sign Out") {
-                            session.clear()
-                            NotificationCenter.default.post(name: .sessionChanged, object: nil)
-                        }
-                        .controlSize(.small)
-                    }
-                } else {
-                    HStack(spacing: Theme.Spacing.medium) {
-                        Image(systemName: "person.crop.circle.badge.questionmark")
+                        .frame(width: 32, height: 32)
+                        .clipShape(Circle())
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
                             .font(.title2)
                             .foregroundStyle(.secondary)
-                        Text("Not signed in").foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Sign In with Google") {
-                            AuthService.signInWithBrowser()
-                        }
-                        .controlSize(.small)
                     }
                 }
+                VStack(alignment: .leading, spacing: 2) {
+                    if !displayName.isEmpty && displayName != email {
+                        Text(displayName).font(.body.weight(.medium))
+                    }
+                    Text(email).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Sign Out") {
+                    session.clear()
+                    NotificationCenter.default.post(name: .sessionChanged, object: nil)
+                }
+                .controlSize(.small)
             }
-            .padding(Theme.Spacing.medium)
+            .onAppear { refresh() }
+            .onReceive(NotificationCenter.default.publisher(for: .sessionChanged)) { _ in refresh() }
+        } else {
+            HStack(spacing: Theme.Spacing.medium) {
+                Image(systemName: "person.crop.circle.badge.questionmark")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text("Not signed in").foregroundStyle(.secondary)
+                Spacer()
+                Button("Sign In with Google") {
+                    AuthService.signInWithBrowser()
+                }
+                .controlSize(.small)
+            }
+            .onAppear { refresh() }
+            .onReceive(NotificationCenter.default.publisher(for: .sessionChanged)) { _ in refresh() }
         }
-        .onAppear { refresh() }
-        .onReceive(NotificationCenter.default.publisher(for: .sessionChanged)) { _ in refresh() }
     }
 
     private func refresh() {
@@ -1075,9 +1057,6 @@ private struct ClaudeVoiceAuthRow: View {
                 Spacer()
                 actionButtons
             }
-            .padding(12)
-            .background(Color(NSColor.controlBackgroundColor))
-            .cornerRadius(8)
         }
     }
 
