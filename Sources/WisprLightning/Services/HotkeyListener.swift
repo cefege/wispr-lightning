@@ -6,6 +6,9 @@ class HotkeyListener {
     private let session: Session
     private let onPress: () -> Void
     private let onRelease: () -> Void
+    /// Resolved at hotkey-fire time so vendor switches take effect without
+    /// re-binding the listener.
+    private let currentVendor: () -> DictationVendor
     var onPolishPress: (() -> Void)?
     private var keyDown = false
     private var activeKeyCode: UInt16? // which hotkey triggered the current recording
@@ -36,14 +39,21 @@ class HotkeyListener {
     private func rebuildHotkeySet() {
         let codes = settings.hotkeyKeyCodes
         _hotkeySet = codes.isEmpty ? [59] : Set(codes)
-        // Polish hotkey only registered for Wispr Flow account holders; other
-        // vendors don't have access to the polish endpoint.
-        _polishKeyCodes = session.isWisprFlowAccount ? Set(settings.polishHotkeyKeyCodes) : []
+        // Polish hotkey only registered when the active vendor is Wispr Flow
+        // AND the user is signed in — other vendors don't have polish access.
+        _polishKeyCodes = session.canUsePolish(activeVendor: currentVendor())
+            ? Set(settings.polishHotkeyKeyCodes)
+            : []
     }
 
-    init(settings: AppSettings, session: Session, onPress: @escaping () -> Void, onRelease: @escaping () -> Void) {
+    init(settings: AppSettings,
+         session: Session,
+         currentVendor: @escaping () -> DictationVendor,
+         onPress: @escaping () -> Void,
+         onRelease: @escaping () -> Void) {
         self.settings = settings
         self.session = session
+        self.currentVendor = currentVendor
         self.onPress = onPress
         self.onRelease = onRelease
 

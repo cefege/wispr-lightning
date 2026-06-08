@@ -65,7 +65,7 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
   - Polish gating: keep `PolishService` / `PolishStore` / polish hotkey code intact, but hide all polish UI in `UI/SettingsWindow.swift` and skip polish hotkey registration in `Services/HotkeyListener.swift` unless `Session` is authenticated as a Wispr Flow account. Settings model: leave fields, hide UI.
   - No vendor switching UX yet — Flow stays the only provider in B-007. B-008 / B-009 add the others.
   - ~250 LOC changed, ~150 LOC new, zero LOC deleted (polish kept, just gated).
-- **Status:** done (commit <pending>) — protocol + WisprFlowProvider + AudioRecorder onPacket + polish gating in place; swift build green.
+- **Status:** done (commit 0808f00) — protocol + WisprFlowProvider + AudioRecorder onPacket + polish gating in place; swift build green.
 
 ## B-008 — Add OpenRouter (Gemini multimodal) as a second provider
 
@@ -81,7 +81,7 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
   - Hide polish UI/hotkey when active provider is OpenRouter (extends B-007's gating logic).
   - Migrate Edge's pricing-disclaimer copy (`SettingsWindow.swift:655`).
   - ~400 LOC new (provider + UI + keychain).
-- **Status:** proposed
+- **Status:** done (commit <pending>) — DictationVendor enum, OpenRouterProvider, KeychainStore, AudioEncoding, Provider settings panel, status-bar Provider submenu. Polish gate is now `activeVendor == .wisprFlow && session.isWisprFlowAccount`.
 - **Depends on:** B-007
 
 ## B-009 — Add Claude Voice as third provider (streaming); retire `claudia/` and `wispr-edge/`

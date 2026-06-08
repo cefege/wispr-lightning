@@ -95,7 +95,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         polishStore = PolishStore(dbManager: dbManager)
         notesStore = NotesStore(dbManager: dbManager)
         audioRecorder = AudioRecorder(settings: settings)
-        dictationProvider = WisprFlowProvider(session: session, settings: settings)
+        activeVendor = DictationVendor(rawValue: settings.activeVendor) ?? .wisprFlow
+        dictationProvider = Self.makeProvider(vendor: activeVendor, session: session, settings: settings)
         dictationProvider.dictionaryStore = dictionaryStore
         polishService = PolishService(session: session, settings: settings)
         textInjector = TextInjector(settings: settings)
@@ -122,6 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 isVerboseLoggingEnabled = updated.verboseLogging
             }
             guard let self = self else { return }
+            self.refreshProviderIfChanged()
             self.rearmMicrophone()
         }
 
@@ -160,6 +162,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyListener = HotkeyListener(
             settings: settings,
             session: session,
+            currentVendor: { [weak self] in self?.activeVendor ?? .wisprFlow },
             onPress: { [weak self] in self?.onHotkeyPress() },
             onRelease: { [weak self] in self?.onHotkeyRelease() }
         )
@@ -559,7 +562,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         wLog("Injecting: \(String(displayText.prefix(80)))")
 
                         let activeInstructions = self.settings.activePolishInstructions
-                        if self.session.isWisprFlowAccount && self.settings.autoPolish && self.settings.polishEnabled
+                        if self.session.canUsePolish(activeVendor: self.activeVendor) && self.settings.autoPolish && self.settings.polishEnabled
                             && !activeInstructions.isEmpty {
                             // Auto-polish will inject the final text — skip raw injection
                             // Keep overlay in Processing state while polish runs
@@ -584,7 +587,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         }
 
                         // Auto-polish after dictation (Wispr Flow only)
-                        if self.session.isWisprFlowAccount && self.settings.autoPolish && self.settings.polishEnabled {
+                        if self.session.canUsePolish(activeVendor: self.activeVendor) && self.settings.autoPolish && self.settings.polishEnabled {
                             self.autoPolishText(displayText)
                         }
                     } else {
@@ -829,8 +832,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Polish
 
     private func onPolishHotkeyPress() {
-        guard session.isWisprFlowAccount else {
-            wLog("Polish skipped — Wispr Flow account required")
+        guard session.canUsePolish(activeVendor: activeVendor) else {
+            wLog("Polish skipped — Wispr Flow account / vendor required")
             return
         }
         guard settings.polishEnabled else { return }
@@ -1005,6 +1008,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         source.setCancelHandler { close(fd) }
         source.resume()
         wisprFlowSessionWatcher = source
+    }
+
+    // MARK: - Provider selection
+
+    private var activeVendor: DictationVendor = .wisprFlow
+
+    private func currentVendor() -> DictationVendor {
+        return DictationVendor(rawValue: settings.activeVendor) ?? .wisprFlow
+    }
+
+    private static func makeProvider(vendor: DictationVendor, session: Session, settings: AppSettings) -> DictationProvider {
+        switch vendor {
+        case .wisprFlow:
+            return WisprFlowProvider(session: session, settings: settings)
+        case .openRouter:
+            return OpenRouterProvider(settings: settings)
+        case .claudeVoice:
+            // Falls back to Flow until B-009 lands the streaming impl.
+            return WisprFlowProvider(session: session, settings: settings)
+        }
+    }
+
+    private func refreshProviderIfChanged() {
+        let desired = currentVendor()
+        guard desired != activeVendor else { return }
+        wLog("Switching transcription vendor: \(activeVendor.displayName) → \(desired.displayName)")
+        dictationProvider.cancel()
+        dictationProvider = Self.makeProvider(vendor: desired, session: session, settings: settings)
+        dictationProvider.dictionaryStore = dictionaryStore
+        activeVendor = desired
     }
 
     func applicationWillTerminate(_ notification: Notification) {

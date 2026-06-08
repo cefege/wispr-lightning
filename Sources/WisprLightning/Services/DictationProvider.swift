@@ -1,5 +1,21 @@
 import Foundation
 
+/// Which backend currently handles dictation. Persisted as a string in settings
+/// so the on-disk format survives future additions.
+enum DictationVendor: String, CaseIterable {
+    case wisprFlow = "wispr_flow"
+    case openRouter = "openrouter"
+    case claudeVoice = "claude_voice"
+
+    var displayName: String {
+        switch self {
+        case .wisprFlow:   return "Wispr Flow"
+        case .openRouter:  return "OpenRouter (Gemini)"
+        case .claudeVoice: return "Claude Voice"
+        }
+    }
+}
+
 /// Final context for a dictation. Some providers (Wispr Flow) send this in
 /// the auth message at stop-time; streaming providers (Claude Voice) may use
 /// the parts they care about (e.g. keyterms) at start-time and ignore the rest.

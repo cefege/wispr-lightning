@@ -45,7 +45,7 @@ private struct SettingsToggleRow: View {
 // MARK: - Settings Section Enum
 
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, dictation, polish
+    case general, dictation, provider, polish
     case history, dictionary, notes
     case privacy, system
 
@@ -55,6 +55,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "General"
         case .dictation: return "Dictation"
+        case .provider: return "Provider"
         case .polish: return "Polish"
         case .history: return "History"
         case .dictionary: return "Dictionary"
@@ -68,6 +69,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape.fill"
         case .dictation: return "mic.fill"
+        case .provider: return "antenna.radiowaves.left.and.right"
         case .polish: return "sparkles"
         case .history: return "clock.fill"
         case .dictionary: return "character.book.closed.fill"
@@ -81,6 +83,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general, .system:    return Self.gradGray
         case .dictation, .privacy: return Self.gradBlue
+        case .provider:            return Self.gradGreen
         case .polish:              return Self.gradPurple
         case .history:             return Self.gradOrange
         case .dictionary:          return Self.gradGreen
@@ -143,9 +146,10 @@ struct AllSettingsView: View {
 
     /// Polish is a Wispr Flow-only feature; hide the tab entirely for other vendors.
     private var settingsGroup: [SettingsSection] {
-        session.isWisprFlowAccount
-            ? [.general, .dictation, .polish]
-            : [.general, .dictation]
+        let vendor = DictationVendor(rawValue: vm.activeVendor) ?? .wisprFlow
+        return session.canUsePolish(activeVendor: vendor)
+            ? [.general, .dictation, .provider, .polish]
+            : [.general, .dictation, .provider]
     }
 
     var body: some View {
@@ -209,6 +213,8 @@ struct AllSettingsView: View {
                                 DictationDetail(vm: vm)
                                 Divider()
                                 PersonalizationDetail(vm: vm)
+                            case .provider:
+                                ProviderDetail(vm: vm)
                             case .polish:
                                 PolishDetail(vm: vm)
                             case .privacy:
@@ -717,6 +723,142 @@ private struct DictationDetail: View {
     }
 }
 
+// MARK: - Provider Detail
+
+private struct ProviderDetail: View {
+    @ObservedObject var vm: SettingsViewModel
+    @State private var revealKey = false
+    @State private var testStatus: String = ""
+    @State private var testIsError = false
+    @State private var testing = false
+
+    // Live prices verified from openrouter.ai (early 2026). Format: in/out per 1M tokens.
+    private static let presetModels: [(value: String, label: String)] = [
+        ("google/gemini-2.5-flash-lite",         "Gemini 2.5 Flash Lite — $0.10 / $0.40 (cheapest)"),
+        ("google/gemini-2.5-flash",              "Gemini 2.5 Flash — $0.30 / $2.50"),
+        ("google/gemini-2.5-pro",                "Gemini 2.5 Pro — $1.25 / $10.00"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.large) {
+            Text("Transcription Provider")
+                .font(.title3.weight(.semibold))
+
+            Text("Choose which backend turns your audio into text. Switching providers takes effect on your next dictation.")
+                .font(.callout)
+                .foregroundColor(.secondary)
+
+            Picker("Provider", selection: $vm.activeVendor) {
+                ForEach(DictationVendor.allCases, id: \.rawValue) { vendor in
+                    Text(vendor.displayName).tag(vendor.rawValue)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: 360, alignment: .leading)
+            .onChange(of: vm.activeVendor) { _ in vm.saveActiveVendor() }
+
+            Divider()
+
+            if vm.activeVendor == DictationVendor.openRouter.rawValue {
+                openRouterPanel
+            } else if vm.activeVendor == DictationVendor.wisprFlow.rawValue {
+                Text("Signed-in Wispr Flow account is used. Manage sign-in from the General tab.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+            } else if vm.activeVendor == DictationVendor.claudeVoice.rawValue {
+                Text("Reads auth from the Claude CLI's Keychain entry (`claude /login`). No sign-in needed here.")
+                    .font(.callout)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var openRouterPanel: some View {
+        Text("Wispr Lightning sends your audio to a Gemini multimodal model via OpenRouter. You pay OpenRouter directly. Get a key at openrouter.ai/keys.")
+            .font(.callout)
+            .foregroundColor(.secondary)
+
+        Text("OpenRouter API Key")
+            .font(.headline)
+
+        HStack(spacing: 8) {
+            Group {
+                if revealKey {
+                    TextField("sk-or-…", text: $vm.openRouterAPIKey)
+                } else {
+                    SecureField("sk-or-…", text: $vm.openRouterAPIKey)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .font(.system(.body, design: .monospaced))
+
+            Button {
+                revealKey.toggle()
+            } label: {
+                Image(systemName: revealKey ? "eye.slash" : "eye")
+            }
+            .help(revealKey ? "Hide key" : "Show key")
+        }
+
+        HStack(spacing: 10) {
+            Button {
+                vm.saveProviderSettings()
+                testStatus = "Saved. The next dictation will use this key."
+                testIsError = false
+            } label: {
+                Text("Save")
+            }
+
+            Button {
+                testing = true
+                testStatus = ""
+                vm.testOpenRouterConnection { ok, msg in
+                    testing = false
+                    testStatus = msg
+                    testIsError = !ok
+                }
+            } label: {
+                Text(testing ? "Testing…" : "Test connection")
+            }
+            .disabled(testing || vm.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if !testStatus.isEmpty {
+                Text(testStatus)
+                    .font(.callout)
+                    .foregroundColor(testIsError ? .red : .secondary)
+                    .lineLimit(2)
+            }
+        }
+
+        Divider()
+
+        Text("Model")
+            .font(.headline)
+
+        Picker("Model", selection: $vm.openRouterModel) {
+            ForEach(Self.presetModels, id: \.value) { preset in
+                Text(preset.label).tag(preset.value)
+            }
+            if !Self.presetModels.contains(where: { $0.value == vm.openRouterModel }) {
+                Text("Custom: \(vm.openRouterModel)").tag(vm.openRouterModel)
+            }
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .frame(maxWidth: 360, alignment: .leading)
+
+        TextField("Custom model id (e.g. google/gemini-2.5-flash)", text: $vm.openRouterModel)
+            .textFieldStyle(.roundedBorder)
+            .font(.system(.body, design: .monospaced))
+            .onSubmit { vm.saveProviderSettings() }
+
+        Text("Audio is sent inline as WAV. Both audio and the cleaned transcript count toward OpenRouter usage.")
+            .font(.caption)
+            .foregroundColor(.secondary)
+    }
+}
+
 // MARK: - Polish Detail
 
 private struct PolishDetail: View {
@@ -1006,6 +1148,11 @@ class SettingsViewModel: ObservableObject {
     // Debug
     @Published var verboseLogging: Bool
 
+    // Provider (transcription vendor)
+    @Published var activeVendor: String
+    @Published var openRouterModel: String
+    @Published var openRouterAPIKey: String
+
     private var shortcutMonitor: Any?
 
     deinit {
@@ -1182,8 +1329,73 @@ class SettingsViewModel: ObservableObject {
         // Debug
         self.verboseLogging = settings.verboseLogging
 
+        // Provider
+        self.activeVendor = settings.activeVendor
+        self.openRouterModel = settings.openRouterModel
+        self.openRouterAPIKey = KeychainStore.read(.openRouterAPIKey) ?? ""
+
         refreshMicDevices()
         availableSoundPacks = SoundManager.availablePacks()
+    }
+
+    // MARK: - Provider
+
+    func saveActiveVendor() {
+        settings.activeVendor = activeVendor
+        settings.save()
+    }
+
+    func saveProviderSettings() {
+        settings.activeVendor = activeVendor
+        settings.openRouterModel = openRouterModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.save()
+
+        let trimmed = openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            KeychainStore.delete(.openRouterAPIKey)
+        } else {
+            KeychainStore.write(.openRouterAPIKey, trimmed)
+        }
+        NotificationCenter.default.post(name: .settingsChanged, object: settings)
+    }
+
+    /// Pings OpenRouter to verify the entered key. Calls completion on the main
+    /// thread with (success, message).
+    func testOpenRouterConnection(_ completion: @escaping (Bool, String) -> Void) {
+        let key = openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            completion(false, "No API key entered")
+            return
+        }
+        var request = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/auth/key")!)
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 15
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    completion(false, error.localizedDescription)
+                    return
+                }
+                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                    completion(false, "HTTP \(http.statusCode)")
+                    return
+                }
+                guard let data = data,
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let inner = json["data"] as? [String: Any] else {
+                    completion(false, "Malformed response")
+                    return
+                }
+                let label = (inner["label"] as? String) ?? "OK"
+                let limit = inner["limit"] as? Double
+                let usage = inner["usage"] as? Double ?? 0
+                var msg = "Connected — key label: \(label)"
+                if let limit = limit {
+                    msg += "; usage $\(String(format: "%.2f", usage)) / $\(String(format: "%.2f", limit))"
+                }
+                completion(true, msg)
+            }
+        }.resume()
     }
 
     func refreshMicDevices() {

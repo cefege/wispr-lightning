@@ -63,6 +63,10 @@ class AppSettings: Codable {
     var naturalModeEnabled: Bool = false
     var naturalModeSpeed: String = "normal"  // "slow" | "normal" | "expert"
 
+    // Transcription vendor — see DictationVendor enum
+    var activeVendor: String = DictationVendor.wisprFlow.rawValue
+    var openRouterModel: String = "google/gemini-2.5-flash-lite"
+
     static let settingsURL: URL = {
         let dir = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/WisprLightning")

@@ -26,6 +26,14 @@ class Session {
         return isValid
     }
 
+    /// True when polish features should be exposed. Requires both a valid Flow
+    /// session and the active vendor being Wispr Flow — when the user is on
+    /// OpenRouter / Claude Voice we don't surface polish even if they still
+    /// have a Flow session cached.
+    func canUsePolish(activeVendor: DictationVendor) -> Bool {
+        return activeVendor == .wisprFlow && isWisprFlowAccount
+    }
+
     static let wisprFlowSessionURL: URL = {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/Wispr Flow/session.json")

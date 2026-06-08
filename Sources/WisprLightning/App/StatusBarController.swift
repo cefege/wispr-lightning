@@ -142,6 +142,21 @@ class StatusBarController {
         inputDeviceItem.submenu = inputDeviceMenu
         menu.addItem(inputDeviceItem)
 
+        // Transcription provider submenu — quick switch between Wispr Flow,
+        // OpenRouter, and Claude Voice without opening Settings.
+        let providerItem = NSMenuItem(title: "Provider", action: nil, keyEquivalent: "")
+        let providerMenu = NSMenu()
+        let active = DictationVendor(rawValue: settings.activeVendor) ?? .wisprFlow
+        for vendor in DictationVendor.allCases {
+            let item = NSMenuItem(title: vendor.displayName, action: #selector(selectVendor(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = vendor.rawValue
+            item.state = vendor == active ? .on : .off
+            providerMenu.addItem(item)
+        }
+        providerItem.submenu = providerMenu
+        menu.addItem(providerItem)
+
         // Pause hotkey toggle — escape hatch for Universal Control / remote desktop
         // scenarios where the hotkey shouldn't fire on this Mac.
         let pauseTitle = settings.hotkeyPaused ? "Resume hotkey" : "Pause hotkey"
@@ -187,6 +202,14 @@ class StatusBarController {
             settings.micDeviceUID = nil
             settings.micDeviceName = nil
         }
+        settings.save()
+        buildMenu()
+    }
+
+    @objc private func selectVendor(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let vendor = DictationVendor(rawValue: raw) else { return }
+        settings.activeVendor = vendor.rawValue
         settings.save()
         buildMenu()
     }
