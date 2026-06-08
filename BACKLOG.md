@@ -98,5 +98,5 @@ Items proposed by `/propose`, picked off by `/improve <id>`. See `CLAUDE.md` for
   - Update `CLAUDE.md` (Lightning's) to document the three-vendor architecture, lift over claudia's load-bearing decisions (endpoint, keepalive, no crash recovery, Keychain ownership).
   - After parity is confirmed via `/smoke`: delete `/Users/mike/Documents/Code/claudia/Claude Voice.app` from `/Applications`, archive the `claudia/` repo (or delete after user confirms), same for `wispr-edge/`.
   - ~700 LOC new (3 ported files + provider + KeyTerms wiring + settings UI + status bar).
-- **Status:** done (commit <pending>) — ClaudeVoiceProvider with live PCM streaming, VoiceStream WS client (8s keepalive, anthropic-client-platform header), ClaudeCodeKeychain reader, ClaudeVoiceKeyTerms vocabulary extractor. Settings/status-bar already vendor-aware from B-008. Retirement of `claudia/` and `wispr-edge/` left to user verification before deleting source trees.
+- **Status:** done (commit 71e32d4) — ClaudeVoiceProvider with live PCM streaming, VoiceStream WS client (8s keepalive, anthropic-client-platform header), ClaudeCodeKeychain reader, ClaudeVoiceKeyTerms vocabulary extractor. Settings/status-bar already vendor-aware from B-008. Retirement of `claudia/` and `wispr-edge/` left to user verification before deleting source trees.
 - **Depends on:** B-008
