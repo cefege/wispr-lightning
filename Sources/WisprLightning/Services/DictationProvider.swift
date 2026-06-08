@@ -10,7 +10,7 @@ enum DictationVendor: String, CaseIterable {
     var displayName: String {
         switch self {
         case .wisprFlow:   return "Wispr Flow"
-        case .openRouter:  return "OpenRouter (Gemini)"
+        case .openRouter:  return "OpenRouter"
         case .claudeVoice: return "Claude Voice"
         }
     }
