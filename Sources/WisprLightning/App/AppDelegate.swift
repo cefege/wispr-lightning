@@ -353,6 +353,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         recordingWarnSec  = Constants.warningSeconds
         recordingFinalSec = Constants.finalWarningSeconds
         soundManager.playStart()
+
+        // Wire the audio capture callbacks BEFORE audioRecorder.start() so no
+        // packets/level updates emitted in the engine's startup tick are lost
+        // (they fire on the capture thread; a nil callback at that instant
+        // silently drops the packet, costing us the first few ms of audio).
+        if let cv = dictationProvider as? ClaudeVoiceProvider {
+            cv.setPendingOcrLines(lastSessionOcrLines)
+        }
+        dictationProvider.start()
+        audioRecorder.onPacket = { [weak self] packet in
+            self?.dictationProvider.feed(packet: packet)
+        }
+        audioRecorder.onLevelUpdate = { [weak self] level in
+            DispatchQueue.main.async {
+                self?.recordingOverlay.updateAudioLevel(level)
+            }
+        }
+
         let startResult = audioRecorder.start()
         switch startResult {
         case .started:
@@ -361,33 +379,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             wLog("Recording started with fallback mic (requested device unavailable)")
         case .failed(let reason):
             wLog("Failed to start recording: \(reason)")
+            audioRecorder.onPacket = nil
+            audioRecorder.onLevelUpdate = nil
+            dictationProvider.cancel()
             recordingState = .idle
             recordingOverlay.showError(message: "Mic unavailable")
             musicController.resumeMusic()
             return
         }
         recordingStartTime = Date()
-
-        // Begin a provider session and stream packets to it as they're captured.
-        // Wispr Flow buffers internally; streaming providers (e.g. Claude Voice)
-        // will send each packet over the wire as it arrives.
-        // Claude Voice can't add keyterms after WS open, so hand it whatever
-        // OCR / screen context the *previous* session captured (empty for the
-        // first dictation of the launch — rare, low cost).
-        if let cv = dictationProvider as? ClaudeVoiceProvider {
-            cv.setPendingOcrLines(lastSessionOcrLines)
-        }
-        dictationProvider.start()
-        audioRecorder.onPacket = { [weak self] packet in
-            self?.dictationProvider.feed(packet: packet)
-        }
-
-        // Pipe mic level to the pill. Tap fires on a background queue.
-        audioRecorder.onLevelUpdate = { [weak self] level in
-            DispatchQueue.main.async {
-                self?.recordingOverlay.updateAudioLevel(level)
-            }
-        }
 
         // Pause music in background — AppleScript calls are slow
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -559,9 +559,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let axContext = pendingAxContext ?? []
         let context = DictationContext(appInfo: appInfo, ocrContext: ocrContext, axContext: axContext)
 
-        // Retry path: re-prime the provider's internal buffer from the
-        // saved packet array (initial attempt already has them from `feed`).
-        if currentRetryAttempt > 0 {
+        // Re-prime the provider's internal buffer whenever we're talking to a
+        // provider that wasn't fed live during recording — that's the case
+        // for every retry (manual or auto), every fallback chain step beyond
+        // the primary, and after dismissRetry+retryTranscription. The initial
+        // attempt is skipped because audioRecorder.onPacket already fed it.
+        if currentRetryAttempt > 0 || currentChainIndex > 0 {
             dictationProvider.cancel()
             dictationProvider.start()
             for packet in packets {
@@ -697,7 +700,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func retryTranscription() {
-        currentRetryAttempt = 1  // ensure attemptTranscription re-primes the buffer
+        // Manual retry restarts the chain from the top: rebuild the primary
+        // provider and reset both counters so attemptTranscription re-primes
+        // its buffer and the user gets a fresh 2x auto-retry budget.
+        currentChainIndex = 0
+        currentRetryAttempt = 1
+        dictationProvider.cancel()
+        dictationProvider = Self.makeProvider(vendor: activeVendor, session: session, settings: settings)
+        dictationProvider.dictionaryStore = dictionaryStore
         recordingOverlay.showProcessing()
         // Pre-warm connection so TCP+TLS handshake starts immediately
         dictationProvider.prewarmConnection()
@@ -774,32 +784,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .replacingOccurrences(of: ":", with: "-")
         let url = downloadsDir.appendingPathComponent("wispr-recording-\(timestamp).wav")
 
-        let packetSize = Constants.chunkSamples * 2  // 1280 bytes
-        let dataSize = UInt32(packets.count * packetSize)
-        var wav = Data(capacity: 44 + Int(dataSize))
-
-        func appendU16(_ d: inout Data, _ v: UInt16) { var le = v.littleEndian; d.append(Data(bytes: &le, count: 2)) }
-        func appendU32(_ d: inout Data, _ v: UInt32) { var le = v.littleEndian; d.append(Data(bytes: &le, count: 4)) }
-
-        // RIFF header
-        wav.append(contentsOf: [0x52, 0x49, 0x46, 0x46]) // "RIFF"
-        appendU32(&wav, 36 + dataSize)
-        wav.append(contentsOf: [0x57, 0x41, 0x56, 0x45]) // "WAVE"
-        // fmt chunk
-        wav.append(contentsOf: [0x66, 0x6D, 0x74, 0x20]) // "fmt "
-        appendU32(&wav, 16)                                // chunk size
-        appendU16(&wav, 1)                                 // PCM
-        appendU16(&wav, 1)                                 // mono
-        appendU32(&wav, UInt32(Constants.sampleRate))
-        appendU32(&wav, UInt32(Constants.sampleRate * 2))  // byte rate
-        appendU16(&wav, 2)                                 // block align
-        appendU16(&wav, 16)                                // bits per sample
-        // data chunk
-        wav.append(contentsOf: [0x64, 0x61, 0x74, 0x61]) // "data"
-        appendU32(&wav, dataSize)
-        for packet in packets {
-            wav.append(packet)
-        }
+        let wav = AudioEncoding.wavData(from: packets)
 
         do {
             try wav.write(to: url)

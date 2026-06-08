@@ -969,54 +969,54 @@ private struct WisprFlowAccountPanel: View {
             .font(.callout)
             .foregroundColor(.secondary)
 
-        if isSignedIn {
-            HStack(spacing: Theme.Spacing.medium) {
-                Group {
-                    if let urlString = avatarURL, let url = URL(string: urlString) {
-                        AsyncImage(url: url) { image in
-                            image.resizable().scaledToFill()
-                        } placeholder: {
+        Group {
+            if isSignedIn {
+                HStack(spacing: Theme.Spacing.medium) {
+                    Group {
+                        if let urlString = avatarURL, let url = URL(string: urlString) {
+                            AsyncImage(url: url) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(width: 32, height: 32)
+                            .clipShape(Circle())
+                        } else {
                             Image(systemName: "person.crop.circle.fill")
+                                .font(.title2)
                                 .foregroundStyle(.secondary)
                         }
-                        .frame(width: 32, height: 32)
-                        .clipShape(Circle())
-                    } else {
-                        Image(systemName: "person.crop.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
                     }
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    if !displayName.isEmpty && displayName != email {
-                        Text(displayName).font(.body.weight(.medium))
+                    VStack(alignment: .leading, spacing: 2) {
+                        if !displayName.isEmpty && displayName != email {
+                            Text(displayName).font(.body.weight(.medium))
+                        }
+                        Text(email).font(.caption).foregroundStyle(.secondary)
                     }
-                    Text(email).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Sign Out") {
+                        session.clear()
+                        NotificationCenter.default.post(name: .sessionChanged, object: nil)
+                    }
+                    .controlSize(.small)
                 }
-                Spacer()
-                Button("Sign Out") {
-                    session.clear()
-                    NotificationCenter.default.post(name: .sessionChanged, object: nil)
+            } else {
+                HStack(spacing: Theme.Spacing.medium) {
+                    Image(systemName: "person.crop.circle.badge.questionmark")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text("Not signed in").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Sign In with Google") {
+                        AuthService.signInWithBrowser()
+                    }
+                    .controlSize(.small)
                 }
-                .controlSize(.small)
             }
-            .onAppear { refresh() }
-            .onReceive(NotificationCenter.default.publisher(for: .sessionChanged)) { _ in refresh() }
-        } else {
-            HStack(spacing: Theme.Spacing.medium) {
-                Image(systemName: "person.crop.circle.badge.questionmark")
-                    .font(.title2)
-                    .foregroundStyle(.secondary)
-                Text("Not signed in").foregroundStyle(.secondary)
-                Spacer()
-                Button("Sign In with Google") {
-                    AuthService.signInWithBrowser()
-                }
-                .controlSize(.small)
-            }
-            .onAppear { refresh() }
-            .onReceive(NotificationCenter.default.publisher(for: .sessionChanged)) { _ in refresh() }
         }
+        .onAppear { refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .sessionChanged)) { _ in refresh() }
     }
 
     private func refresh() {

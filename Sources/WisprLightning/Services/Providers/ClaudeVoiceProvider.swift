@@ -144,8 +144,12 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
             try voice.connect()
         } catch {
             wLog("Claude Voice: failed to connect — \(error.localizedDescription)")
+            // Tear the stream down so its URLSession (which retains the
+            // VoiceStream as its delegate) doesn't leak.
+            voice.close()
             stream = nil
             inSession = false
+            failureMessage = "Failed to open Claude Voice stream: \(error.localizedDescription)"
         }
     }
 

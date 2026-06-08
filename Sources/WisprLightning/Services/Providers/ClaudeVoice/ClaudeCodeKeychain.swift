@@ -89,16 +89,12 @@ enum ClaudeCodeKeychain {
         return token
     }
 
-    static func clearCache() {
+    /// Drop both the in-process cache and the on-disk mirror. Used by
+    /// Settings "Re-check" so the next read forces a fresh upstream pull.
+    static func clearAllCaches() {
         cacheLock.lock()
         cachedToken = nil
         cacheLock.unlock()
-    }
-
-    /// Drop the on-disk mirror as well. Used by Settings "Re-check" so the
-    /// next read forces a fresh upstream pull.
-    static func clearAllCaches() {
-        clearCache()
         deleteMirror()
     }
 

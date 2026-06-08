@@ -310,12 +310,20 @@ final class VoiceStream: NSObject, URLSessionWebSocketDelegate {
         switch type {
         case "TranscriptText":
             if let t = obj["data"] as? String, !t.isEmpty {
-                lastInterim = t
+                // lastInterim is consumed by resolveFinalization on `queue`;
+                // updating it here on the URLSession delegate queue would
+                // race with that read. Bounce onto `queue` to serialize.
+                queue.async { [weak self] in self?.lastInterim = t }
                 delegate?.voiceStream(self, didReceiveInterim: t)
             }
         case "TranscriptEndpoint":
-            flushLastInterimAsFinal()
-            queue.async { [weak self] in self?.resolveFinalization() }
+            // flushLastInterimAsFinal mutates lastInterim, which is also
+            // touched from `queue` by resolveFinalization. Bounce onto the
+            // serial queue so both paths can't race for the final string.
+            queue.async { [weak self] in
+                self?.flushLastInterimAsFinal()
+                self?.resolveFinalization()
+            }
         case "TranscriptError":
             let msg = (obj["description"] as? String)
                 ?? (obj["error_code"] as? String)
