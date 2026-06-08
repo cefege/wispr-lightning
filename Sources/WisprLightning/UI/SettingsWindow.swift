@@ -741,12 +741,6 @@ private struct ProviderDetail: View {
     @State private var testIsError = false
     @State private var testing = false
 
-    // Live prices verified from openrouter.ai (early 2026). Format: in/out per 1M tokens.
-    private static let presetModels: [(value: String, label: String)] = [
-        ("google/gemini-2.5-flash-lite",         "Gemini 2.5 Flash Lite — $0.10 / $0.40 (cheapest)"),
-        ("google/gemini-2.5-flash",              "Gemini 2.5 Flash — $0.30 / $2.50"),
-        ("google/gemini-2.5-pro",                "Gemini 2.5 Pro — $1.25 / $10.00"),
-    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.large) {
@@ -770,6 +764,7 @@ private struct ProviderDetail: View {
 
             if vm.activeVendor == DictationVendor.openRouter.rawValue {
                 openRouterPanel
+                    .onAppear { vm.loadOpenRouterModels() }
             } else if vm.activeVendor == DictationVendor.wisprFlow.rawValue {
                 Text("Signed-in Wispr Flow account is used. Manage sign-in from the General tab.")
                     .font(.callout)
@@ -840,20 +835,50 @@ private struct ProviderDetail: View {
 
         Divider()
 
-        Text("Model")
-            .font(.headline)
-
-        Picker("Model", selection: $vm.openRouterModel) {
-            ForEach(Self.presetModels, id: \.value) { preset in
-                Text(preset.label).tag(preset.value)
-            }
-            if !Self.presetModels.contains(where: { $0.value == vm.openRouterModel }) {
-                Text("Custom: \(vm.openRouterModel)").tag(vm.openRouterModel)
+        HStack(alignment: .firstTextBaseline) {
+            Text("Model")
+                .font(.headline)
+            Spacer()
+            switch vm.openRouterModelListState {
+            case .loading:
+                ProgressView().controlSize(.small)
+            case .loaded:
+                Button("Refresh") { vm.loadOpenRouterModels(force: true) }
+                    .controlSize(.small)
+            case .failed:
+                Button("Retry") { vm.loadOpenRouterModels(force: true) }
+                    .controlSize(.small)
+            case .idle:
+                EmptyView()
             }
         }
-        .labelsHidden()
-        .pickerStyle(.menu)
-        .frame(maxWidth: 360, alignment: .leading)
+
+        switch vm.openRouterModelListState {
+        case .idle, .loading:
+            Text("Loading audio-input models from openrouter.ai…")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        case .failed(let msg):
+            Text("Couldn't load model list — \(msg). You can still type a custom model id below.")
+                .font(.caption)
+                .foregroundColor(.red)
+        case .loaded:
+            Picker("Model", selection: $vm.openRouterModel) {
+                ForEach(vm.openRouterModelList) { model in
+                    Text(model.displayLabel).tag(model.id)
+                }
+                if !vm.openRouterModelList.contains(where: { $0.id == vm.openRouterModel }) {
+                    Text("Custom: \(vm.openRouterModel)").tag(vm.openRouterModel)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: 460, alignment: .leading)
+            .onChange(of: vm.openRouterModel) { _ in vm.saveProviderSettings() }
+            Text("\(vm.openRouterModelList.count) audio-capable models, cheapest first. Prices are per 1M tokens (input / output).")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
 
         TextField("Custom model id (e.g. google/gemini-2.5-flash)", text: $vm.openRouterModel)
             .textFieldStyle(.roundedBorder)
@@ -968,9 +993,10 @@ private final class ClaudeVoiceAuthCheck: ObservableObject {
         state = .checking
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let next: State
+            // Drop both in-process and on-disk caches so a fresh upstream read
+            // is forced — necessary after the user runs `claude /login` again.
+            ClaudeCodeKeychain.clearAllCaches()
             do {
-                // forceRefresh:true so a Re-check after `claude /login` sees
-                // the new token instead of the cached stale one.
                 let token = try ClaudeCodeKeychain.read(forceRefresh: true)
                 next = token.isExpired ? .expired : .signedIn
             } catch {
@@ -1275,6 +1301,15 @@ class SettingsViewModel: ObservableObject {
     @Published var activeVendor: String
     @Published var openRouterModel: String
     @Published var openRouterAPIKey: String
+    @Published var openRouterModelList: [OpenRouterAudioModel] = []
+    @Published var openRouterModelListState: OpenRouterModelListState = .idle
+
+    enum OpenRouterModelListState: Equatable {
+        case idle
+        case loading
+        case loaded
+        case failed(String)
+    }
 
     private var shortcutMonitor: Any?
 
@@ -1481,6 +1516,26 @@ class SettingsViewModel: ObservableObject {
             KeychainStore.write(.openRouterAPIKey, trimmed)
         }
         NotificationCenter.default.post(name: .settingsChanged, object: settings)
+    }
+
+    /// Async fetch of all audio-input models from OpenRouter. Cheap-first.
+    /// No-op if a load is already in progress or completed in this session.
+    func loadOpenRouterModels(force: Bool = false) {
+        if !force {
+            if case .loading = openRouterModelListState { return }
+            if case .loaded = openRouterModelListState { return }
+        }
+        openRouterModelListState = .loading
+        OpenRouterModels.fetchAudioModels { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let models):
+                self.openRouterModelList = models
+                self.openRouterModelListState = .loaded
+            case .failure(let err):
+                self.openRouterModelListState = .failed(err.localizedDescription)
+            }
+        }
     }
 
     /// Pings OpenRouter to verify the entered key. Calls completion on the main

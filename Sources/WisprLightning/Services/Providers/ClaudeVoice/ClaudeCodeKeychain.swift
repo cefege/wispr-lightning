@@ -49,12 +49,18 @@ enum ClaudeCodeKeychainError: Error, CustomStringConvertible {
 }
 
 enum ClaudeCodeKeychain {
-    static let service = "Claude Code-credentials"
+    /// Item written by the `claude` CLI. Read once, then mirrored into our
+    /// own Keychain service so future reads don't trigger the cross-app
+    /// password prompt.
+    static let upstreamService = "Claude Code-credentials"
+    /// Our own mirror. Lightning owns this item, so SecItemCopyMatching
+    /// against it never prompts. Re-synced from the upstream item whenever
+    /// the mirror is missing or expired.
+    private static let mirrorService = "com.wisprlightning"
+    private static let mirrorAccount = "claude_code.cached_token"
 
-    /// Why: after macOS sleep / long idle, the login keychain auto-relocks and
-    /// the next SecItemCopyMatching blocks for several seconds while it
-    /// re-unlocks. We cache the token in process memory so we hit the keychain
-    /// at most once per launch (or after a forceRefresh).
+    /// In-process cache. Survives within a single launch — prevents repeated
+    /// keychain reads within one session.
     private static let cacheLock = NSLock()
     private static var cachedToken: ClaudeCodeOAuthToken?
 
@@ -68,9 +74,40 @@ enum ClaudeCodeKeychain {
             }
         }
 
+        // Try our own mirrored copy first — silent, no cross-app prompt.
+        if !forceRefresh, let mirrored = readMirror(), !mirrored.isExpired {
+            cacheLock.lock(); cachedToken = mirrored; cacheLock.unlock()
+            return mirrored
+        }
+
+        // Either no mirror, mirror expired, or caller forced a refresh.
+        // Read from the upstream `Claude Code-credentials` item — the prompt
+        // happens here, at most once per token lifetime.
+        let token = try readUpstream()
+        writeMirror(token)
+        cacheLock.lock(); cachedToken = token; cacheLock.unlock()
+        return token
+    }
+
+    static func clearCache() {
+        cacheLock.lock()
+        cachedToken = nil
+        cacheLock.unlock()
+    }
+
+    /// Drop the on-disk mirror as well. Used by Settings "Re-check" so the
+    /// next read forces a fresh upstream pull.
+    static func clearAllCaches() {
+        clearCache()
+        deleteMirror()
+    }
+
+    // MARK: - Upstream (claude CLI's item)
+
+    private static func readUpstream() throws -> ClaudeCodeOAuthToken {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: upstreamService,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
@@ -82,17 +119,46 @@ enum ClaudeCodeKeychain {
         guard status == errSecSuccess, let data = item as? Data else {
             throw ClaudeCodeKeychainError.readFailed(status)
         }
-        let token = try decode(data)
-        cacheLock.lock()
-        cachedToken = token
-        cacheLock.unlock()
-        return token
+        return try decode(data)
     }
 
-    static func clearCache() {
-        cacheLock.lock()
-        cachedToken = nil
-        cacheLock.unlock()
+    // MARK: - Mirror (our own item — silent reads)
+
+    private static func readMirror() -> ClaudeCodeOAuthToken? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: mirrorService,
+            kSecAttrAccount as String: mirrorAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return try? JSONDecoder().decode(ClaudeCodeOAuthToken.self, from: data)
+    }
+
+    private static func writeMirror(_ token: ClaudeCodeOAuthToken) {
+        guard let data = try? JSONEncoder().encode(token) else { return }
+        let base: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: mirrorService,
+            kSecAttrAccount as String: mirrorAccount,
+        ]
+        SecItemDelete(base as CFDictionary)
+        var attrs = base
+        attrs[kSecValueData as String] = data
+        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        _ = SecItemAdd(attrs as CFDictionary, nil)
+    }
+
+    private static func deleteMirror() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: mirrorService,
+            kSecAttrAccount as String: mirrorAccount,
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 
     private static func decode(_ data: Data) throws -> ClaudeCodeOAuthToken {
