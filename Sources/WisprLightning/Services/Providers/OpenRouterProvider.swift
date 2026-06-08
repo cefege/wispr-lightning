@@ -28,7 +28,16 @@ final class OpenRouterProvider: DictationProvider {
         if let env = ProcessInfo.processInfo.environment["WISPR_LIGHTNING_OPENROUTER_KEY"], !env.isEmpty {
             return env
         }
-        return KeychainStore.read(.openRouterAPIKey)
+        if let stored = SecretsStore.read(.openRouterAPIKey) { return stored }
+        // Migration: if the key is still in Keychain from a prior build, pull
+        // it once (may prompt), persist to SecretsStore, and remove from
+        // Keychain so we never prompt for it again.
+        if let migrated = KeychainStore.read(.openRouterAPIKey) {
+            SecretsStore.write(.openRouterAPIKey, migrated)
+            KeychainStore.delete(.openRouterAPIKey)
+            return migrated
+        }
+        return nil
     }
 
     private var model: String {

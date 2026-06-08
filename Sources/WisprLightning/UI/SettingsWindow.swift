@@ -898,40 +898,49 @@ private struct OpenRouterAccountPanel: View {
     @State private var testing = false
 
     var body: some View {
-        Text("BYO key. You pay OpenRouter directly. Get a key at openrouter.ai/keys.")
-            .font(.callout)
-            .foregroundColor(.secondary)
-            .onAppear { vm.loadOpenRouterAPIKeyIfNeeded() }
+        HStack {
+            Text("BYO key. You pay OpenRouter directly. Get a key at openrouter.ai/keys.")
+                .font(.callout)
+                .foregroundColor(.secondary)
+            Spacer()
+            if vm.hasOpenRouterAPIKey {
+                Label("Saved", systemImage: "checkmark.seal.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+        }
 
         HStack(spacing: 8) {
             Group {
                 if revealKey {
-                    TextField("sk-or-…", text: $vm.openRouterAPIKey)
+                    TextField("sk-or-… (paste to replace, leave empty to keep saved)", text: $vm.openRouterAPIKey)
                 } else {
-                    SecureField("sk-or-…", text: $vm.openRouterAPIKey)
+                    SecureField("sk-or-… (paste to replace, leave empty to keep saved)", text: $vm.openRouterAPIKey)
                 }
             }
             .textFieldStyle(.roundedBorder)
             .font(.system(.body, design: .monospaced))
 
             Button {
+                if !revealKey {
+                    vm.loadOpenRouterAPIKeyIfNeeded()
+                }
                 revealKey.toggle()
             } label: {
                 Image(systemName: revealKey ? "eye.slash" : "eye")
             }
-            .help(revealKey ? "Hide key" : "Show key")
+            .help(revealKey ? "Hide key" : "Show saved key")
         }
 
         HStack(spacing: 10) {
-            Button {
-                vm.saveProviderSettings()
+            Button("Save") {
+                vm.saveOpenRouterAPIKey()
                 testStatus = "Saved."
                 testIsError = false
-            } label: {
-                Text("Save")
             }
+            .disabled(vm.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-            Button {
+            Button(testing ? "Testing…" : "Test connection") {
                 testing = true
                 testStatus = ""
                 vm.testOpenRouterConnection { ok, msg in
@@ -939,10 +948,8 @@ private struct OpenRouterAccountPanel: View {
                     testStatus = msg
                     testIsError = !ok
                 }
-            } label: {
-                Text(testing ? "Testing…" : "Test connection")
             }
-            .disabled(testing || vm.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .disabled(testing || (!vm.hasOpenRouterAPIKey && vm.openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
 
             if !testStatus.isEmpty {
                 Text(testStatus)
@@ -1641,27 +1648,47 @@ class SettingsViewModel: ObservableObject {
     }
 
     func saveProviderSettings() {
+        // Persists activeVendor + openRouterModel only. The API key is saved
+        // separately via saveOpenRouterAPIKey() so model-picker changes can't
+        // accidentally overwrite a stored key with whatever's in the (often
+        // empty) input field.
         settings.activeVendor = activeVendor
         settings.openRouterModel = openRouterModel.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.save()
-
-        let trimmed = openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            KeychainStore.delete(.openRouterAPIKey)
-        } else {
-            KeychainStore.write(.openRouterAPIKey, trimmed)
-        }
         NotificationCenter.default.post(name: .settingsChanged, object: settings)
     }
 
-    /// Load the OpenRouter API key from the Keychain on demand. Called when
-    /// the user actually opens the OpenRouter Accounts panel. Idempotent —
-    /// the underlying KeychainStore has its own in-process cache.
+    /// Persists the OpenRouter API key. Triggered by the explicit Save button
+    /// in the Accounts panel only. Empty input is treated as "keep the
+    /// existing value" rather than "delete" so the user doesn't lose their
+    /// stored key by hitting Save with a blank field.
+    func saveOpenRouterAPIKey() {
+        let trimmed = openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        SecretsStore.write(.openRouterAPIKey, trimmed)
+    }
+
+    /// Explicit destructive action — only called from a "Clear saved key"
+    /// affordance if we add one later. Not wired in the current UI.
+    func clearOpenRouterAPIKey() {
+        SecretsStore.delete(.openRouterAPIKey)
+        openRouterAPIKey = ""
+        openRouterKeyLoaded = true  // suppresses next loadIfNeeded read
+    }
+
+    /// Load the OpenRouter API key from disk on demand. SecretsStore is
+    /// file-backed, so this never triggers a Keychain prompt.
     private var openRouterKeyLoaded = false
     func loadOpenRouterAPIKeyIfNeeded() {
         guard !openRouterKeyLoaded else { return }
         openRouterKeyLoaded = true
-        openRouterAPIKey = KeychainStore.read(.openRouterAPIKey) ?? ""
+        openRouterAPIKey = SecretsStore.read(.openRouterAPIKey) ?? ""
+    }
+
+    /// True iff a saved key exists, without revealing its value. Used to
+    /// show "saved ✓" in the Accounts panel without triggering any access.
+    var hasOpenRouterAPIKey: Bool {
+        return SecretsStore.has(.openRouterAPIKey)
     }
 
     // MARK: - Fallback chain
@@ -1794,9 +1821,12 @@ class SettingsViewModel: ObservableObject {
     /// Pings OpenRouter to verify the entered key. Calls completion on the main
     /// thread with (success, message).
     func testOpenRouterConnection(_ completion: @escaping (Bool, String) -> Void) {
-        let key = openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Prefer the freshly-typed value in the field; fall back to the
+        // saved key so Test works without making the user re-paste.
+        let typed = openRouterAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = !typed.isEmpty ? typed : (SecretsStore.read(.openRouterAPIKey) ?? "")
         guard !key.isEmpty else {
-            completion(false, "No API key entered")
+            completion(false, "No API key saved or entered")
             return
         }
         var request = URLRequest(url: URL(string: "https://openrouter.ai/api/v1/auth/key")!)
