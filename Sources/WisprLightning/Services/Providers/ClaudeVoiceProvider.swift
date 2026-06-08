@@ -18,6 +18,10 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
     private let finalsLock = NSLock()
     private var packetCount: Int = 0
     private var failureMessage: String?
+    /// True when the failure should be classified as an auth failure rather
+    /// than a generic server error — used to return `.authFailed` (which is
+    /// non-retryable) and to drop the cached token before the next attempt.
+    private var failureIsAuth = false
     private let queue = DispatchQueue(label: "WisprLightning.ClaudeVoiceProvider")
     private var inSession = false
 
@@ -94,6 +98,7 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
         finals.removeAll()
         packetCount = 0
         failureMessage = nil
+        failureIsAuth = false
         stream?.close()
 
         let token: ClaudeCodeOAuthToken
@@ -101,14 +106,20 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
             token = try ClaudeCodeKeychain.read()
         } catch {
             wLog("Claude Voice: \(error)")
-            failureMessage = "Run `claude /login` in a terminal, then try again."
+            failureMessage = "Run `claude /login` in a terminal, then click Re-check in Settings → Accounts → Claude Voice."
+            failureIsAuth = true
             stream = nil
             inSession = false
             return
         }
         if token.isExpired {
+            // Drop the cached/mirrored copy so a Re-check (or the next
+            // attempt) forces a fresh upstream read instead of returning the
+            // same expired token again.
+            ClaudeCodeKeychain.clearAllCaches()
             wLog("Claude Voice: token expired — run `claude /login`")
-            failureMessage = "Claude Code token expired — run `claude /login`."
+            failureMessage = "Claude Code session expired. Run `claude /login` in a terminal, then click Re-check in Settings → Accounts → Claude Voice."
+            failureIsAuth = true
             inSession = false
             return
         }
@@ -163,14 +174,25 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
         let cleaned = collected.trimmingCharacters(in: .whitespacesAndNewlines)
         let packets = packetCount
         let failure = failureMessage
+        let isAuthFailure = failureIsAuth
 
         inSession = false
         stream = nil
         packetCount = 0
         failureMessage = nil
+        failureIsAuth = false
 
         if let failure = failure, cleaned.isEmpty {
-            completion(.failure(.serverError(failure)))
+            // Auth-class failures are non-retryable AND should clear the
+            // cached token so the next dictation (or chain step) re-reads
+            // the upstream item — the user may have just run `claude /login`
+            // in the meantime.
+            if isAuthFailure {
+                ClaudeCodeKeychain.clearAllCaches()
+                completion(.failure(.authFailed))
+            } else {
+                completion(.failure(.serverError(failure)))
+            }
             return
         }
         guard !cleaned.isEmpty else {
@@ -203,9 +225,24 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
 
     func voiceStream(_ stream: VoiceStream, didFailWith message: String, fatal: Bool) {
         wLog("Claude Voice: \(message) (fatal=\(fatal))")
+        let isAuth = Self.looksLikeAuthError(message)
         queue.async { [weak self] in
             self?.failureMessage = message
+            if isAuth { self?.failureIsAuth = true }
         }
+    }
+
+    /// Heuristic — server sometimes returns "unauthorized", "401", "invalid
+    /// token", etc. Treat those as auth failures so we re-read the upstream
+    /// token instead of pointlessly retrying with the same bad credential.
+    private static func looksLikeAuthError(_ message: String) -> Bool {
+        let lower = message.lowercased()
+        return lower.contains("unauthorized")
+            || lower.contains("401")
+            || lower.contains("403")
+            || lower.contains("invalid token")
+            || lower.contains("invalid_token")
+            || lower.contains("auth")
     }
 
     func voiceStreamDidOpen(_ stream: VoiceStream) {

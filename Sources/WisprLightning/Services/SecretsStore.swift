@@ -18,6 +18,11 @@ import Foundation
 enum SecretsStore {
     enum Key: String {
         case openRouterAPIKey
+        /// JSON-encoded ClaudeCodeOAuthToken. Written after the user clicks
+        /// Check (which triggers the one-time cross-app Keychain prompt for
+        /// the `claude` CLI's item); subsequent reads come from this file
+        /// instead of re-prompting on every signed rebuild.
+        case claudeCodeTokenMirror
     }
 
     private static let lock = NSLock()

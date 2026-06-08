@@ -49,18 +49,19 @@ enum ClaudeCodeKeychainError: Error, CustomStringConvertible {
 }
 
 enum ClaudeCodeKeychain {
-    /// Item written by the `claude` CLI. Read once, then mirrored into our
-    /// own Keychain service so future reads don't trigger the cross-app
+    /// Item written by the `claude` CLI. Read once, then mirrored into
+    /// SecretsStore (file) so future reads don't trigger the cross-app
     /// password prompt.
     static let upstreamService = "Claude Code-credentials"
-    /// Our own mirror. Lightning owns this item, so SecItemCopyMatching
-    /// against it never prompts. Re-synced from the upstream item whenever
-    /// the mirror is missing or expired.
-    private static let mirrorService = "com.wisprlightning"
-    private static let mirrorAccount = "claude_code.cached_token"
+    /// Legacy Keychain mirror service — kept only for migration. Each
+    /// signed rebuild had a different cdhash and the Keychain ACL re-prompt
+    /// followed every install. The mirror now lives in SecretsStore which
+    /// has none of that fragility.
+    private static let legacyMirrorService = "com.wisprlightning"
+    private static let legacyMirrorAccount = "claude_code.cached_token"
 
     /// In-process cache. Survives within a single launch — prevents repeated
-    /// keychain reads within one session.
+    /// reads within one session.
     private static let cacheLock = NSLock()
     private static var cachedToken: ClaudeCodeOAuthToken?
 
@@ -74,28 +75,71 @@ enum ClaudeCodeKeychain {
             }
         }
 
-        // Try our own mirrored copy first — silent, no cross-app prompt.
+        // Try the SecretsStore mirror first — file-backed, silent, no prompt.
         if !forceRefresh, let mirrored = readMirror(), !mirrored.isExpired {
             cacheLock.lock(); cachedToken = mirrored; cacheLock.unlock()
             return mirrored
         }
 
         // Either no mirror, mirror expired, or caller forced a refresh.
-        // Read from the upstream `Claude Code-credentials` item — the prompt
-        // happens here, at most once per token lifetime.
+        // Read from the upstream `Claude Code-credentials` item — the
+        // cross-app prompt happens here, at most once per token lifetime.
         let token = try readUpstream()
         writeMirror(token)
+        // One-time cleanup: drop the legacy Keychain mirror if it still
+        // exists (anyone upgrading from a build that used the old path).
+        deleteLegacyMirror()
         cacheLock.lock(); cachedToken = token; cacheLock.unlock()
         return token
     }
 
     /// Drop both the in-process cache and the on-disk mirror. Used by
     /// Settings "Re-check" so the next read forces a fresh upstream pull.
+    /// Also clears the legacy Keychain mirror in case it lingers.
     static func clearAllCaches() {
         cacheLock.lock()
         cachedToken = nil
         cacheLock.unlock()
         deleteMirror()
+        deleteLegacyMirror()
+    }
+
+    /// True if the user has the `claude` CLI's keychain item available
+    /// (without reading it — best-effort signal for UI hints). Returns true
+    /// when we have a fresh mirror OR a recent in-memory cache; doesn't
+    /// distinguish "never logged in" from "haven't checked yet".
+    static var hasFreshToken: Bool {
+        cacheLock.lock(); let c = cachedToken; cacheLock.unlock()
+        if let c, !c.isExpired { return true }
+        if let m = readMirror(), !m.isExpired { return true }
+        return false
+    }
+
+    /// Best-effort probe for whether the `claude` CLI is installed on this
+    /// Mac. Checks the canonical install locations from `claude install` /
+    /// Homebrew / npm. Used to show "Get the Claude CLI" hints in Settings
+    /// without requiring the user to discover the error path themselves.
+    static var isCLIInstalled: Bool {
+        let candidates = [
+            "/usr/local/bin/claude",
+            "/opt/homebrew/bin/claude",
+            "\(NSHomeDirectory())/.local/bin/claude",
+            "\(NSHomeDirectory())/.npm/bin/claude",
+            "\(NSHomeDirectory())/.bun/bin/claude",
+        ]
+        for path in candidates where FileManager.default.isExecutableFile(atPath: path) {
+            return true
+        }
+        // Also check if PATH locates it. Avoid running the binary; just
+        // probe directories.
+        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
+            for dir in pathEnv.split(separator: ":") {
+                if FileManager.default.isExecutableFile(atPath: "\(dir)/claude") {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     // MARK: - Upstream (claude CLI's item)
@@ -118,41 +162,29 @@ enum ClaudeCodeKeychain {
         return try decode(data)
     }
 
-    // MARK: - Mirror (our own item — silent reads)
+    // MARK: - Mirror (SecretsStore — silent, file-backed)
 
     private static func readMirror() -> ClaudeCodeOAuthToken? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: mirrorService,
-            kSecAttrAccount as String: mirrorAccount,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        guard let json = SecretsStore.read(.claudeCodeTokenMirror),
+              let data = json.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(ClaudeCodeOAuthToken.self, from: data)
     }
 
     private static func writeMirror(_ token: ClaudeCodeOAuthToken) {
-        guard let data = try? JSONEncoder().encode(token) else { return }
-        let base: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: mirrorService,
-            kSecAttrAccount as String: mirrorAccount,
-        ]
-        SecItemDelete(base as CFDictionary)
-        var attrs = base
-        attrs[kSecValueData as String] = data
-        attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        _ = SecItemAdd(attrs as CFDictionary, nil)
+        guard let data = try? JSONEncoder().encode(token),
+              let json = String(data: data, encoding: .utf8) else { return }
+        _ = SecretsStore.write(.claudeCodeTokenMirror, json)
     }
 
     private static func deleteMirror() {
+        _ = SecretsStore.delete(.claudeCodeTokenMirror)
+    }
+
+    private static func deleteLegacyMirror() {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: mirrorService,
-            kSecAttrAccount as String: mirrorAccount,
+            kSecAttrService as String: legacyMirrorService,
+            kSecAttrAccount as String: legacyMirrorAccount,
         ]
         SecItemDelete(query as CFDictionary)
     }

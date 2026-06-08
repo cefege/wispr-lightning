@@ -1258,12 +1258,36 @@ private struct WisprFlowAccountPanel: View {
 /// explicitly with the "Check" button instead of at view-appear time.
 private struct ClaudeVoiceAuthRow: View {
     @StateObject private var auth = ClaudeVoiceAuthCheck()
+    @State private var cliInstalled: Bool = ClaudeCodeKeychain.isCLIInstalled
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Spacing.medium) {
             Text("Sends audio live to Claude Code's STT WebSocket. Auth uses the OAuth token the `claude` CLI stores in your Keychain — Wispr Lightning never writes to it.")
                 .font(.callout)
                 .foregroundColor(.secondary)
+
+            if !cliInstalled {
+                HStack(spacing: 12) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(.blue)
+                        .font(.title2)
+                        .frame(width: 24)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Claude CLI not detected").font(.body.bold())
+                        Text("Lightning's Claude Voice provider needs the `claude` CLI. Install it from claude.ai/download, then run `claude /login` to sign in.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button("Open download page") {
+                        if let url = URL(string: "https://claude.ai/download") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                    .controlSize(.small)
+                }
+            }
 
             HStack(spacing: 12) {
                 Image(systemName: iconName)
@@ -1281,6 +1305,7 @@ private struct ClaudeVoiceAuthRow: View {
                 actionButtons
             }
         }
+        .onAppear { cliInstalled = ClaudeCodeKeychain.isCLIInstalled }
     }
 
     @ViewBuilder

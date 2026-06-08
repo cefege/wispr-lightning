@@ -142,6 +142,9 @@ final class VoiceStream: NSObject, URLSessionWebSocketDelegate {
 
     /// Send CloseStream and wait briefly for a TranscriptEndpoint, then close.
     /// Tolerant of being called before the socket opens — just closes silently.
+    /// Short-circuits when the socket is already definitively dead so the
+    /// fallback chain advances immediately instead of burning the 2s cap on
+    /// a connection we know is gone.
     func finalize() async {
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
             queue.async { [weak self] in
@@ -151,8 +154,20 @@ final class VoiceStream: NSObject, URLSessionWebSocketDelegate {
                     return
                 }
                 self.didCloseStream = true
+                // If the socket isn't running we're not going to get a
+                // TranscriptEndpoint — resolve now instead of waiting 2s.
+                if task.state != .running {
+                    self.pendingFinalization = cont
+                    self.resolveFinalization()
+                    return
+                }
                 if self.isOpen {
                     task.send(.string(#"{"type":"CloseStream"}"#)) { _ in }
+                } else {
+                    // Pre-open finalize: nothing to flush, no transcript coming.
+                    self.pendingFinalization = cont
+                    self.resolveFinalization()
+                    return
                 }
                 self.pendingFinalization = cont
                 DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
