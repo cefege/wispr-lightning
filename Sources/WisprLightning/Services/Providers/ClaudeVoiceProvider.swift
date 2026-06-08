@@ -21,6 +21,19 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
     private let queue = DispatchQueue(label: "WisprLightning.ClaudeVoiceProvider")
     private var inSession = false
 
+    /// OCR / screen-context lines for the *next* session. Set by AppDelegate
+    /// from whatever OCR finished during the previous recording — the WS URL
+    /// fixes keyterms at connect-time, so we can't add them retroactively.
+    /// First recording of the launch sees an empty list; subsequent recordings
+    /// get keyterms distilled from the preceding session's screen capture.
+    var pendingOcrLines: [String] = []
+    private let hintLock = NSLock()
+    func setPendingOcrLines(_ lines: [String]) {
+        hintLock.lock()
+        pendingOcrLines = lines
+        hintLock.unlock()
+    }
+
     init(settings: AppSettings) {
         self.settings = settings
     }
@@ -94,14 +107,21 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
             return
         }
 
-        // Keyterms: distil from user dictionary phrases. OCR-derived terms
-        // can't be passed retroactively (they're in the URL query), so we
-        // skip them in V1. Dictionary + names is the high-signal subset.
-        var keytermLines: [String] = []
+        // Keyterms: combine user dictionary phrases with OCR lines from the
+        // previous session (current session's OCR happens in parallel and
+        // can't land in the URL retroactively). Dictionary phrases bypass
+        // the NL tagger — they're already curated proper nouns — and are
+        // appended to whatever the tagger distills from OCR.
+        hintLock.lock()
+        let ocrLines = pendingOcrLines
+        hintLock.unlock()
+        var keyterms = ClaudeVoiceKeyTerms.extract(from: ocrLines, limit: 20)
         if let phrases = dictionaryStore?.getVocabularyPhrases() {
-            keytermLines.append(contentsOf: phrases)
+            for phrase in phrases where !keyterms.contains(phrase) {
+                keyterms.append(phrase)
+                if keyterms.count >= 20 { break }
+            }
         }
-        let keyterms = ClaudeVoiceKeyTerms.extract(from: keytermLines, limit: 20)
 
         let language = settings.languages.first ?? "en"
         let config = VoiceStreamConfig(

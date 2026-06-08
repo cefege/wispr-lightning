@@ -62,6 +62,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var recordingFinalSec = 0
     private var cachedOCRContext: [String] = []
     private var cachedAXContext: [String] = []
+    /// OCR captured during the previous recording, fed to Claude Voice's
+    /// keyterms hint for the *next* session (URL-fixed keyterms can't be
+    /// added after WS open).
+    private var lastSessionOcrLines: [String] = []
     private var tapDelayTimer: Timer?
     private var processingTimeoutTimer: Timer?
     private var rearmTimer: Timer?
@@ -362,6 +366,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Begin a provider session and stream packets to it as they're captured.
         // Wispr Flow buffers internally; streaming providers (e.g. Claude Voice)
         // will send each packet over the wire as it arrives.
+        // Claude Voice can't add keyterms after WS open, so hand it whatever
+        // OCR / screen context the *previous* session captured (empty for the
+        // first dictation of the launch — rare, low cost).
+        if let cv = dictationProvider as? ClaudeVoiceProvider {
+            cv.setPendingOcrLines(lastSessionOcrLines)
+        }
         dictationProvider.start()
         audioRecorder.onPacket = { [weak self] packet in
             self?.dictationProvider.feed(packet: packet)
@@ -504,6 +514,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 let ctx = self.cachedOCRContext
                 self.cachedOCRContext = []
                 return ctx
+            }
+            // Stash for next-session keyterms hint (Claude Voice only uses this).
+            if let ocr = self.pendingOcrContext, !ocr.isEmpty {
+                self.lastSessionOcrLines = ocr
             }
             self.pendingAxContext = self.axQueue.sync {
                 let ctx = self.cachedAXContext
