@@ -15,6 +15,13 @@ class Session {
     /// this an in-flight refresh could be observed mid-write — `accessToken`
     /// non-nil, `expiresAt` still 0 — and `isValid` returns the wrong answer.
     private let stateLock = NSLock()
+    /// Coalesces concurrent refresh() calls. Without this, two near-simultaneous
+    /// dictations whose token just expired would both fire refresh, race the
+    /// server, and one would lose — silently. Now the first request runs and
+    /// any concurrent caller piggybacks on its result.
+    private let refreshLock = NSLock()
+    private var refreshInFlight = false
+    private var refreshWaiters: [(Bool) -> Void] = []
 
     var isValid: Bool {
         stateLock.lock()
@@ -156,6 +163,28 @@ class Session {
             return
         }
 
+        // Coalesce concurrent refreshes. If another caller is already mid-
+        // flight, just enqueue our completion to receive the same outcome.
+        refreshLock.lock()
+        if refreshInFlight {
+            refreshWaiters.append(completion)
+            refreshLock.unlock()
+            return
+        }
+        refreshInFlight = true
+        refreshLock.unlock()
+
+        let finish: (Bool) -> Void = { [weak self] success in
+            guard let self else { completion(success); return }
+            self.refreshLock.lock()
+            let waiters = self.refreshWaiters
+            self.refreshWaiters.removeAll()
+            self.refreshInFlight = false
+            self.refreshLock.unlock()
+            completion(success)
+            for w in waiters { w(success) }
+        }
+
         let url = URL(string: "\(Constants.supabaseURL)/auth/v1/token?grant_type=refresh_token")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -171,7 +200,7 @@ class Session {
                   let newAccessToken = json["access_token"] as? String,
                   let newRefreshToken = json["refresh_token"] as? String else {
                 NSLog("Wispr Lightning: Token refresh failed: %@", error?.localizedDescription ?? "unknown")
-                completion(false)
+                finish(false)
                 return
             }
             // Hold the lock across all writes — accessToken, expiresAt, and
@@ -192,7 +221,7 @@ class Session {
             self.save()
             wLogVerbose("Token refresh response: \(String(data: data, encoding: .utf8)?.prefix(300) ?? "")")
             NSLog("Wispr Lightning: Token refreshed successfully")
-            completion(true)
+            finish(true)
         }.resume()
     }
 

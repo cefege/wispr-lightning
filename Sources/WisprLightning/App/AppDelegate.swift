@@ -1057,17 +1057,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
         source.setEventHandler { [weak self] in
             guard let self = self else { return }
-            // Only migrate if we don't have a valid session of our own
+            // Only migrate if we don't have a valid session of our own.
             guard !self.session.isValid else { return }
-            if self.session.load() {
-                NSLog("Wispr Lightning: Picked up session from Wispr Flow (%@)", self.session.userEmail ?? "unknown")
-                NotificationCenter.default.post(name: .sessionChanged, object: nil)
-                self.statusBarController.updateMenu()
-            }
+            // The .write event fires mid-write — the file can be empty or
+            // contain partial JSON. Retry a few times with a short delay so
+            // we don't waste the migration on the half-written state.
+            self.attemptWisprFlowSessionMigration(attempt: 1, maxAttempts: 5)
         }
         source.setCancelHandler { close(fd) }
         source.resume()
         wisprFlowSessionWatcher = source
+    }
+
+    private func attemptWisprFlowSessionMigration(attempt: Int, maxAttempts: Int) {
+        if session.load() {
+            NSLog("Wispr Lightning: Picked up session from Wispr Flow (%@)", session.userEmail ?? "unknown")
+            NotificationCenter.default.post(name: .sessionChanged, object: nil)
+            statusBarController.updateMenu()
+            return
+        }
+        guard attempt < maxAttempts else {
+            wLog("Wispr Flow session.json still unreadable after \(maxAttempts) attempts")
+            return
+        }
+        // Exponential-ish backoff: 50, 150, 400, 900ms.
+        let delaySec = Double(attempt * attempt) * 0.05 + 0.05
+        DispatchQueue.main.asyncAfter(deadline: .now() + delaySec) { [weak self] in
+            guard let self else { return }
+            guard !self.session.isValid else { return }
+            self.attemptWisprFlowSessionMigration(attempt: attempt + 1, maxAttempts: maxAttempts)
+        }
     }
 
     // MARK: - Onboarding
@@ -1155,6 +1174,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = audioDevicesObserver { NotificationCenter.default.removeObserver(observer) }
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         if let monitor = cmdCommaMonitor { NSEvent.removeMonitor(monitor) }
+        // Invalidate any active timers — recording, retry, rearm, processing.
+        // Most paths invalidate them already, but app termination during a
+        // rare state (mid-retry, mid-trailing-buffer) would otherwise leak.
+        recordingTimer?.invalidate(); recordingTimer = nil
+        tapDelayTimer?.invalidate(); tapDelayTimer = nil
+        processingTimeoutTimer?.invalidate(); processingTimeoutTimer = nil
+        rearmTimer?.invalidate(); rearmTimer = nil
+        NSAppleEventManager.shared().removeEventHandler(
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
         hotkeyListener.stop()
         wisprFlowSessionWatcher?.cancel()
         wisprFlowSessionWatcher = nil

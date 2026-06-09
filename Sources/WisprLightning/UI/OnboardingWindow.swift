@@ -230,31 +230,47 @@ private struct OnboardingView: View {
 
 /// Subscribes to AudioRecorder.onLevelUpdate during onboarding so the user
 /// sees a live RMS bar before a real dictation. Starts/stops with the view.
+/// Bails out when a real dictation is in flight (AudioRecorder.isAnyActive)
+/// — opening a second AVAudioEngine against the same input either shows a
+/// flat meter or steals audio from the live recording.
 private struct MicTestView: View {
     @State private var level: Float = 0
     @State private var recorder: AudioRecorder? = nil
+    @State private var conflict: Bool = false
 
     var body: some View {
         VStack(spacing: 12) {
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(Color.secondary.opacity(0.15))
-                    .frame(height: 24)
-                GeometryReader { geo in
-                    Capsule()
-                        .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .leading, endPoint: .trailing))
-                        .frame(width: geo.size.width * CGFloat(min(1, level * 1.6)), height: 24)
-                        .animation(.linear(duration: 0.05), value: level)
+            if conflict {
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform.badge.exclamationmark")
+                        .foregroundStyle(.orange)
+                    Text("A dictation is in progress — skip this step and test the mic after.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
-                .frame(height: 24)
-            }
-            .frame(maxWidth: .infinity)
+                .padding(12)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+            } else {
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.15))
+                        .frame(height: 24)
+                    GeometryReader { geo in
+                        Capsule()
+                            .fill(LinearGradient(colors: [.green, .yellow, .red], startPoint: .leading, endPoint: .trailing))
+                            .frame(width: geo.size.width * CGFloat(min(1, level * 1.6)), height: 24)
+                            .animation(.linear(duration: 0.05), value: level)
+                    }
+                    .frame(height: 24)
+                }
+                .frame(maxWidth: .infinity)
 
-            Text(level < 0.02
-                 ? "No signal yet — try speaking, or check your input device."
-                 : "Looks good — Lightning hears you.")
-                .font(.caption)
-                .foregroundColor(level < 0.02 ? .secondary : .green)
+                Text(level < 0.02
+                     ? "No signal yet — try speaking, or check your input device."
+                     : "Looks good — Lightning hears you.")
+                    .font(.caption)
+                    .foregroundColor(level < 0.02 ? .secondary : .green)
+            }
         }
         .padding(.horizontal, 4)
         .onAppear { start() }
@@ -262,6 +278,10 @@ private struct MicTestView: View {
     }
 
     private func start() {
+        if AudioRecorder.isAnyActive {
+            conflict = true
+            return
+        }
         let r = AudioRecorder(settings: AppSettings.load())
         r.onLevelUpdate = { lvl in
             DispatchQueue.main.async { level = lvl }

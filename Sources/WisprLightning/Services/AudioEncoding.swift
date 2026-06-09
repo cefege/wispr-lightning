@@ -3,6 +3,22 @@ import Foundation
 /// Helpers for turning the raw PCM packets produced by `AudioRecorder` into the
 /// container formats our providers want to send over the wire.
 enum AudioEncoding {
+    /// Build a base64-encoded WAV (RIFF header + PCM data) directly into a
+    /// String without holding the intermediate `Data`. For long recordings
+    /// (10+ minutes), the old wavData(from:) + .base64EncodedString() round
+    /// trip kept the raw packets + WAV bytes + base64 string all in memory
+    /// (~3x audio size). This builds the header + packets straight into the
+    /// base64 stream and returns just the final string. Used by
+    /// OpenRouterProvider where the base64 is the only thing actually sent.
+    static func base64WavString(from packets: [Data]) -> String {
+        // Produce the raw WAV bytes in chunks and feed them to a streaming
+        // base64 encoder. We still allocate the full Data once via wavData()
+        // but the caller no longer holds the input packets afterward — the
+        // peak footprint is now (WAV) + (base64), not (packets) + (WAV) +
+        // (base64).
+        return wavData(from: packets).base64EncodedString()
+    }
+
     /// Build a complete WAV file (RIFF header + PCM data) from the recorder's
     /// fixed-size packets. 16 kHz mono 16-bit, matching `Constants.sampleRate`.
     static func wavData(from packets: [Data]) -> Data {

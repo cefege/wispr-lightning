@@ -153,9 +153,12 @@ final class OpenRouterProvider: DictationProvider {
         }
 
         let durationSeconds = Double(packets.count) * Double(Constants.chunkDurationMs) / 1000.0
-        let wav = AudioEncoding.wavData(from: packets)
-        let base64 = wav.base64EncodedString()
-        wLog("OpenRouter: sending \(wav.count / 1024)KB WAV, \(String(format: "%.1f", durationSeconds))s, model=\(model)")
+        // base64WavString builds the WAV and base64-encodes in one pass, then
+        // drops the intermediate Data. Long recordings (10+ minutes) used to
+        // hold raw packets + WAV + base64 simultaneously (~3x audio size).
+        let approxWavKB = (44 + packets.count * Constants.chunkSamples * 2) / 1024
+        let base64 = AudioEncoding.base64WavString(from: packets)
+        wLog("OpenRouter: sending ~\(approxWavKB)KB WAV, \(String(format: "%.1f", durationSeconds))s, model=\(model)")
 
         var customWordsLine = ""
         if let words = dictionaryStore?.getVocabularyPhrases(), !words.isEmpty {

@@ -29,10 +29,34 @@ enum SecretsStore {
     private static var cache: [String: String]?
 
     private static let fileURL: URL = {
-        let dir = FileManager.default.homeDirectoryForCurrentUser
+        // Stash secrets under a `secrets/` subdir with mode 0700 so even if
+        // a future code path writes a more-permissive sibling file, this
+        // directory is strictly owner-only and the file inside it inherits
+        // that protection.
+        let base = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/WisprLightning")
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir.appendingPathComponent("secrets.json")
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        let secretsDir = base.appendingPathComponent("secrets")
+        try? FileManager.default.createDirectory(
+            at: secretsDir, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: 0o700)]
+        )
+        // Re-apply 0700 in case the dir was created by a prior build with
+        // looser perms.
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: NSNumber(value: 0o700)],
+            ofItemAtPath: secretsDir.path
+        )
+        let newURL = secretsDir.appendingPathComponent("secrets.json")
+        // One-shot migration: if the old path exists (Application
+        // Support/WisprLightning/secrets.json) and the new path doesn't,
+        // move it. Same owner, no perms re-prompt.
+        let legacy = base.appendingPathComponent("secrets.json")
+        if FileManager.default.fileExists(atPath: legacy.path),
+           !FileManager.default.fileExists(atPath: newURL.path) {
+            try? FileManager.default.moveItem(at: legacy, to: newURL)
+        }
+        return newURL
     }()
 
     static func read(_ key: Key) -> String? {

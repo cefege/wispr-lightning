@@ -135,16 +135,50 @@ class AppSettings: Codable {
         return settings
     }
 
+    /// Serial queue for save serialization. JSONEncoder + pretty-print +
+    /// atomic file write on every settings change adds up — bouncing them
+    /// here keeps the main thread responsive while preserving last-write-
+    /// wins ordering.
+    /// Stored on the type rather than the instance so synthesised Codable
+    /// conformance doesn't trip over a non-Codable DispatchWorkItem.
+    private static let saveQueue = DispatchQueue(label: "com.wisprlightning.settings.save")
+    private static let pendingSaveLock = NSLock()
+    private static var pendingSaveItem: DispatchWorkItem?
+
     func save() {
-        guard let data = try? JSONEncoder().encode(self) else { return }
-        // Pretty print
+        // Post the changed notification on the main thread immediately — UI
+        // observers shouldn't wait for the disk write to redraw.
+        let postNotification: () -> Void = { [weak self] in
+            guard let self else { return }
+            NotificationCenter.default.post(name: .settingsChanged, object: self)
+        }
+        if Thread.isMainThread { postNotification() }
+        else { DispatchQueue.main.async { postNotification() } }
+
+        // Debounce rapid changes — only the last save in a 100ms window hits
+        // disk. Settings toggled in rapid succession (e.g. picker scrolling)
+        // coalesce.
+        let snapshot = self.encodedSnapshot()
+        Self.pendingSaveLock.lock()
+        Self.pendingSaveItem?.cancel()
+        let item = DispatchWorkItem {
+            guard let data = snapshot else { return }
+            try? data.write(to: Self.settingsURL, options: .atomic)
+        }
+        Self.pendingSaveItem = item
+        Self.pendingSaveLock.unlock()
+        Self.saveQueue.asyncAfter(deadline: .now() + 0.1, execute: item)
+    }
+
+    /// Snapshot the current state on the calling thread (almost always main)
+    /// so the deferred disk write doesn't read mutable state from a queue.
+    private func encodedSnapshot() -> Data? {
+        guard let data = try? JSONEncoder().encode(self) else { return nil }
         if let json = try? JSONSerialization.jsonObject(with: data),
            let pretty = try? JSONSerialization.data(withJSONObject: json, options: .prettyPrinted) {
-            try? pretty.write(to: Self.settingsURL)
-        } else {
-            try? data.write(to: Self.settingsURL)
+            return pretty
         }
-        NotificationCenter.default.post(name: .settingsChanged, object: self)
+        return data
     }
 }
 

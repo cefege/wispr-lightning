@@ -11,6 +11,11 @@ class StatusBarController {
     private var settingsWindowController: SettingsWindowController?
     private var lastTranscription: String?
     private var sessionObserver: NSObjectProtocol?
+    /// Polls TCC permissions every 30s while the app is alive so a mid-session
+    /// revocation (user opens Privacy & Security and toggles Accessibility
+    /// off) flips the menu warning instead of waiting for the next launch.
+    private var permissionPollTimer: Timer?
+    private var lastPermissionSnapshot: [Permission: PermissionStatus] = [:]
 
     /// Wired by AppDelegate to flip HotkeyListener's pause state.
     var onTogglePause: (() -> Void)?
@@ -36,6 +41,7 @@ class StatusBarController {
         }
 
         buildMenu()
+        refreshPermissionSnapshot()
 
         sessionObserver = NotificationCenter.default.addObserver(
             forName: .sessionChanged,
@@ -43,12 +49,42 @@ class StatusBarController {
         ) { [weak self] _ in
             self?.buildMenu()
         }
+
+        // Low-rate TCC poll so a mid-session revocation doesn't go unnoticed.
+        permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.checkPermissionDrift()
+        }
     }
 
     deinit {
         if let observer = sessionObserver {
             NotificationCenter.default.removeObserver(observer)
         }
+        permissionPollTimer?.invalidate()
+        permissionPollTimer = nil
+    }
+
+    private func refreshPermissionSnapshot() {
+        var snap: [Permission: PermissionStatus] = [:]
+        for p in Permission.allCases { snap[p] = PermissionsManager.status(p) }
+        lastPermissionSnapshot = snap
+    }
+
+    private func checkPermissionDrift() {
+        var next: [Permission: PermissionStatus] = [:]
+        for p in Permission.allCases { next[p] = PermissionsManager.status(p) }
+        if next != lastPermissionSnapshot {
+            lastPermissionSnapshot = next
+            buildMenu()
+        }
+    }
+
+    /// True when any required permission has flipped away from `.granted`.
+    private var hasPermissionRegression: Bool {
+        for p in Permission.allCases where p.isRequired {
+            if lastPermissionSnapshot[p] != .granted { return true }
+        }
+        return false
     }
 
     func setLastTranscription(_ text: String) {
@@ -103,6 +139,16 @@ class StatusBarController {
             item.target = self
             let attrs: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.systemOrange]
             item.attributedTitle = NSAttributedString(string: "⚠ Wispr Flow sign-in required", attributes: attrs)
+            menu.addItem(item)
+            menu.addItem(NSMenuItem.separator())
+        }
+
+        if hasPermissionRegression {
+            let item = NSMenuItem(title: "⚠ A required permission was revoked",
+                                  action: #selector(showOnboardingWindow), keyEquivalent: "")
+            item.target = self
+            let attrs: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.systemRed]
+            item.attributedTitle = NSAttributedString(string: "⚠ A required permission was revoked", attributes: attrs)
             menu.addItem(item)
             menu.addItem(NSMenuItem.separator())
         }

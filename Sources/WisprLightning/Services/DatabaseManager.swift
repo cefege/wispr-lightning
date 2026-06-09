@@ -3,6 +3,12 @@ import SQLite3
 
 class DatabaseManager {
     let db: OpaquePointer?
+    /// Apple's libsqlite3 is built SQLITE_THREADSAFE=1 (serialized handles),
+    /// so multi-thread access *technically* works. But the WAL log + cache
+    /// behaviors are more predictable when all writes funnel through one
+    /// queue, and a serial queue makes the threading model explicit for
+    /// future store classes that might assume otherwise.
+    let queue = DispatchQueue(label: "com.wisprlightning.db")
 
     init() {
         let dir = FileManager.default.homeDirectoryForCurrentUser
@@ -36,10 +42,20 @@ class DatabaseManager {
         sqlite3_exec(db, sql, nil, nil, nil)
     }
 
+    /// Run `block` with serialized access to the underlying handle. Stores
+    /// that mix reads and writes from background queues should wrap their
+    /// statement-prep + step + finalize sequences in this to keep the WAL
+    /// behavior predictable.
+    func sync<T>(_ block: () -> T) -> T {
+        return queue.sync(execute: block)
+    }
+
     func transaction(_ block: () -> Void) {
-        exec("BEGIN TRANSACTION;")
-        block()
-        exec("COMMIT;")
+        queue.sync {
+            exec("BEGIN TRANSACTION;")
+            block()
+            exec("COMMIT;")
+        }
     }
 
     func columnText(_ stmt: OpaquePointer?, _ index: Int32) -> String? {

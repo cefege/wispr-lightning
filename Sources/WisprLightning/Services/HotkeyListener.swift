@@ -13,6 +13,7 @@ class HotkeyListener {
     private var keyDown = false
     private var activeKeyCode: UInt16? // which hotkey triggered the current recording
     private var monitors: [Any] = []
+    private var notificationObservers: [NSObjectProtocol] = []
     private var _hotkeySet: Set<UInt16> = []
     private var _polishKeyCodes: Set<UInt16> = []
     private var lastPolishTriggerTime: Date?
@@ -57,16 +58,27 @@ class HotkeyListener {
         self.onPress = onPress
         self.onRelease = onRelease
 
-        NotificationCenter.default.addObserver(
+        notificationObservers.append(NotificationCenter.default.addObserver(
             forName: .settingsChanged, object: nil, queue: .main
         ) { [weak self] _ in
             self?.rebuildHotkeySet()
-        }
-        NotificationCenter.default.addObserver(
+        })
+        notificationObservers.append(NotificationCenter.default.addObserver(
             forName: .sessionChanged, object: nil, queue: .main
         ) { [weak self] _ in
             self?.rebuildHotkeySet()
+        })
+    }
+
+    deinit {
+        // Belt-and-suspenders cleanup — AppDelegate calls stop() at
+        // applicationWillTerminate, but if the listener is ever recreated
+        // (test, future hot-reload) the prior monitors must drop.
+        removeMonitors()
+        for token in notificationObservers {
+            NotificationCenter.default.removeObserver(token)
         }
+        notificationObservers.removeAll()
     }
 
     /// User-controlled pause toggle. While true, all press handlers early-return.

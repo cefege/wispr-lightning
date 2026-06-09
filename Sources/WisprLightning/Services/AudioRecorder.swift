@@ -8,6 +8,22 @@ class AudioRecorder {
         case failed(String)
     }
 
+    /// Process-wide count of AudioRecorder instances currently recording.
+    /// Used to suppress the onboarding MicTestView (which would otherwise
+    /// open a second AVAudioEngine against the same input and either show
+    /// a flat meter or steal audio from the live dictation).
+    private static let activeCountLock = NSLock()
+    private static var activeCount: Int = 0
+    static var isAnyActive: Bool {
+        activeCountLock.lock(); defer { activeCountLock.unlock() }
+        return activeCount > 0
+    }
+    private static func bumpActive(_ delta: Int) {
+        activeCountLock.lock()
+        activeCount = max(0, activeCount + delta)
+        activeCountLock.unlock()
+    }
+
     private let settings: AppSettings
     private var audioEngine: AVAudioEngine
     private var packets: [Data] = []
@@ -200,6 +216,7 @@ class AudioRecorder {
     func start() -> StartResult {
         packets = []
         isRecording = true
+        Self.bumpActive(+1)
 
         if isPrewarmed {
             if audioEngine.isRunning {
@@ -223,11 +240,13 @@ class AudioRecorder {
             NSLog("Wispr Lightning: Failed to start audio engine: %@", error.localizedDescription)
             audioEngine.inputNode.removeTap(onBus: 0)
             isRecording = false
+            Self.bumpActive(-1)
             return .failed(error.localizedDescription)
         }
     }
 
     func stop() -> [Data] {
+        if isRecording { Self.bumpActive(-1) }
         isRecording = false
 
         packetsLock.lock()

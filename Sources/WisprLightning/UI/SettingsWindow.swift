@@ -1543,6 +1543,58 @@ private struct PrivacyDetail: View {
             }
             .padding(Theme.Spacing.medium)
         }
+
+        Text("Where your audio goes")
+            .font(.headline)
+            .padding(.top, Theme.Spacing.medium)
+        VStack(alignment: .leading, spacing: 8) {
+            DataFlowRow(
+                vendor: "Wispr Flow",
+                detail: "Audio uploads over WebSocket to api.wisprflow.ai for transcription and AI cleanup. Subject to Wispr Flow's privacy policy. Your account is used to bill / track usage."
+            )
+            DataFlowRow(
+                vendor: "OpenRouter",
+                detail: "Audio is sent inline as base64 WAV in an HTTPS request to openrouter.ai, which routes it to the model you picked (Google, Anthropic, etc.). Billed to your OpenRouter account; subject to OpenRouter's and the underlying model provider's privacy policies."
+            )
+            DataFlowRow(
+                vendor: "Claude Voice",
+                detail: "Audio streams live over WebSocket to api.anthropic.com using the OAuth token the `claude` CLI manages. Subject to Anthropic's privacy policy."
+            )
+        }
+
+        Text("Where credentials live")
+            .font(.headline)
+            .padding(.top, Theme.Spacing.medium)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("• **Wispr Flow** session token: `~/Library/Application Support/WisprLightning/session.json` (file owner only).")
+            Text("• **OpenRouter** API key: `~/Library/Application Support/WisprLightning/secrets/secrets.json`, dir mode 0700, file mode 0600.")
+            Text("• **Claude Voice** OAuth token: read from the `claude` CLI's `Claude Code-credentials` Keychain item; mirrored in the same secrets.json above for silent reads.")
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+    }
+}
+
+private struct DataFlowRow: View {
+    let vendor: String
+    let detail: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(vendor).font(.body.weight(.medium))
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .background(Color(NSColor.controlBackgroundColor))
+        .cornerRadius(8)
     }
 }
 
