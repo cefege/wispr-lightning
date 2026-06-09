@@ -248,9 +248,9 @@ class StatusBarController {
 
         // Recent crash report — show one menu item per new .ips file under
         // ~/Library/Logs/DiagnosticReports/. Clicking reveals it in Finder
-        // so the user can drag it into a bug report.
+        // so the user can drag it into a bug report. No leading separator
+        // here — the previous block already added one above.
         if let crashes = Self.recentCrashReports(), !crashes.isEmpty {
-            menu.addItem(NSMenuItem.separator())
             for url in crashes.prefix(2) {
                 let item = NSMenuItem(title: "🐞 Reveal crash report (\(url.lastPathComponent))",
                                       action: #selector(revealCrashReport(_:)), keyEquivalent: "")
@@ -287,8 +287,14 @@ class StatusBarController {
             at: dir, includingPropertiesForKeys: [.creationDateKey]
         ) else { return nil }
         let recent = files.filter { url in
-            url.lastPathComponent.lowercased().contains("wisprlightning") &&
-            (url.pathExtension == "ips" || url.pathExtension == "crash")
+            // Crash report files are named `<binary>-<timestamp>.ips` or
+            // `<binary>_<timestamp>-<uuid>.crash`. Match strictly on the
+            // hyphen / underscore boundary so `WisprLightningExtension-*.ips`
+            // (hypothetical future) doesn't match.
+            let name = url.lastPathComponent
+            let isOurs = name.hasPrefix("WisprLightning-") || name.hasPrefix("WisprLightning_")
+            let isCrash = url.pathExtension == "ips" || url.pathExtension == "crash"
+            return isOurs && isCrash
         }.sorted { lhs, rhs in
             let l = (try? lhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
             let r = (try? rhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast

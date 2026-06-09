@@ -2296,7 +2296,7 @@ class SettingsViewModel: ObservableObject {
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard let data = try? Data(contentsOf: url),
-              let imported = try? JSONDecoder().decode(AppSettings.self, from: data) else {
+              let _ = try? JSONDecoder().decode(AppSettings.self, from: data) else {
             let alert = NSAlert()
             alert.messageText = "Import failed"
             alert.informativeText = "That file isn't a valid Wispr Lightning settings export."
@@ -2306,20 +2306,21 @@ class SettingsViewModel: ObservableObject {
         }
         // Confirm — destructive overwrite.
         let confirm = NSAlert()
-        confirm.messageText = "Replace your current settings?"
-        confirm.informativeText = "Importing will overwrite your hotkeys, fallback chain, dictionary, and other preferences. API keys and account tokens are NOT changed."
-        confirm.addButton(withTitle: "Import")
+        confirm.messageText = "Replace your current settings and relaunch?"
+        confirm.informativeText = "Importing will overwrite your hotkeys, fallback chain, dictionary, and other preferences, then relaunch Wispr Lightning to apply them. API keys and account tokens are NOT changed."
+        confirm.addButton(withTitle: "Import & Relaunch")
         confirm.addButton(withTitle: "Cancel")
         guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        // Write to disk and relaunch. The current in-memory AppSettings could
+        // otherwise debounce-save its (now-stale) values back over the import.
         try? data.write(to: AppSettings.settingsURL, options: .atomic)
-        // Apply to the live instance: copy each field across.
-        _ = imported  // bound to keep value alive; replacement happens on next launch.
-        NotificationCenter.default.post(name: .settingsChanged, object: settings)
-        let done = NSAlert()
-        done.messageText = "Settings imported"
-        done.informativeText = "Restart Wispr Lightning to fully apply the imported configuration."
-        done.addButton(withTitle: "OK")
-        done.runModal()
+        // Spawn a re-open after this process exits.
+        let bundlePath = Bundle.main.bundlePath
+        let task = Process()
+        task.launchPath = "/usr/bin/open"
+        task.arguments = ["-n", bundlePath]
+        try? task.run()
+        NSApp.terminate(nil)
     }
 
     func saveSystemSettings() {

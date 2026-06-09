@@ -793,7 +793,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Opportunistic cleanup of stale PendingAudio files. Called after every
     /// dictation completes so a long-running install (no relaunch in weeks)
     /// doesn't accumulate 24h+ of failed-recovery .pcm files.
-    private func sweepStalePendingAudio() {
+    /// `activePath` snapshots the currently-in-use file path on the main
+    /// thread so the background sweep doesn't read `pendingAudioFileURL`
+    /// concurrently with the next dictation writing to it.
+    private func sweepStalePendingAudio(activePath: String?) {
         let dir = Self.pendingAudioDir
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.creationDateKey]
@@ -801,7 +804,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let now = Date()
         for file in files where file.pathExtension == "pcm" {
             // Don't sweep the file we're currently using.
-            if let active = pendingAudioFileURL, file == active { continue }
+            if let active = activePath, file.path == active { continue }
             guard let created = (try? file.resourceValues(forKeys: [.creationDateKey]).creationDate),
                   now.timeIntervalSince(created) > 86400 else { continue }
             try? FileManager.default.removeItem(at: file)
@@ -834,9 +837,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             dictationProvider = Self.makeProvider(vendor: activeVendor, session: session, settings: settings)
             dictationProvider.dictionaryStore = dictionaryStore
         }
-        // Opportunistic sweep — cheap, runs once per dictation.
+        // Opportunistic sweep — snapshot the active path on main, then run
+        // the directory scan on a background queue so the I/O doesn't block
+        // the UI.
+        let activePath = pendingAudioFileURL?.path
         DispatchQueue.global(qos: .background).async { [weak self] in
-            self?.sweepStalePendingAudio()
+            self?.sweepStalePendingAudio(activePath: activePath)
         }
     }
 
