@@ -106,8 +106,15 @@ class HistoryStore {
             let sqlByAge = "DELETE FROM transcripts WHERE timestamp < ?;"
             if sqlite3_prepare_v2(db, sqlByAge, -1, &stmt, nil) == SQLITE_OK {
                 sqlite3_bind_double(stmt, 1, cutoff)
-                sqlite3_step(stmt)
+                let step = sqlite3_step(stmt)
+                if step != SQLITE_DONE {
+                    NSLog("Wispr Lightning: history prune (by-age) returned %d — %s",
+                          step, String(cString: sqlite3_errmsg(db)))
+                }
                 sqlite3_finalize(stmt)
+            } else {
+                NSLog("Wispr Lightning: history prune prepare failed — %s",
+                      String(cString: sqlite3_errmsg(db)))
             }
             // Cap by id-newest — DELETE FROM ... WHERE id NOT IN (SELECT id
             // FROM ... ORDER BY timestamp DESC LIMIT cap).
@@ -117,7 +124,10 @@ class HistoryStore {
                     SELECT id FROM transcripts ORDER BY timestamp DESC LIMIT \(cap)
                 );
                 """
-            sqlite3_exec(db, sqlCap, nil, nil, nil)
+            if sqlite3_exec(db, sqlCap, nil, nil, nil) != SQLITE_OK {
+                NSLog("Wispr Lightning: history prune (cap) failed — %s",
+                      String(cString: sqlite3_errmsg(db)))
+            }
         }
     }
 

@@ -16,6 +16,13 @@ class StatusBarController {
     /// off) flips the menu warning instead of waiting for the next launch.
     private var permissionPollTimer: Timer?
     private var lastPermissionSnapshot: [Permission: PermissionStatus] = [:]
+    /// Cache of recent crash reports. Scanning ~/Library/Logs/DiagnosticReports
+    /// is filesystem I/O — buildMenu runs on every settings/session change,
+    /// so calling Self.recentCrashReports synchronously each time was hitting
+    /// disk dozens of times per session. Refresh lazily once per 5 minutes
+    /// (and once on launch) — crash reports don't arrive faster than that.
+    private var cachedCrashReports: [URL] = []
+    private var crashReportsCachedAt: Date = .distantPast
 
     /// Wired by AppDelegate to flip HotkeyListener's pause state.
     var onTogglePause: (() -> Void)?
@@ -250,7 +257,8 @@ class StatusBarController {
         // ~/Library/Logs/DiagnosticReports/. Clicking reveals it in Finder
         // so the user can drag it into a bug report. No leading separator
         // here — the previous block already added one above.
-        if let crashes = Self.recentCrashReports(), !crashes.isEmpty {
+        let crashes = cachedCrashReportsIfFresh()
+        if !crashes.isEmpty {
             for url in crashes.prefix(2) {
                 let item = NSMenuItem(title: "🐞 Reveal crash report (\(url.lastPathComponent))",
                                       action: #selector(revealCrashReport(_:)), keyEquivalent: "")
@@ -309,6 +317,27 @@ class StatusBarController {
     @objc private func revealCrashReport(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
+    /// Returns the cached crash-report list; kicks a background refresh if
+    /// the cache is older than 5 minutes. Returning the stale list is fine —
+    /// a brand-new crash report just shows up after the next buildMenu, not
+    /// instantly. The benefit is buildMenu no longer hits disk every call.
+    private func cachedCrashReportsIfFresh() -> [URL] {
+        if Date().timeIntervalSince(crashReportsCachedAt) > 300 {
+            crashReportsCachedAt = Date()
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let fresh = Self.recentCrashReports() ?? []
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if fresh.map(\.absoluteString) != self.cachedCrashReports.map(\.absoluteString) {
+                        self.cachedCrashReports = fresh
+                        self.buildMenu()
+                    }
+                }
+            }
+        }
+        return cachedCrashReports
     }
 
     func openSettings() {

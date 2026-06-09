@@ -2319,13 +2319,25 @@ class SettingsViewModel: ObservableObject {
         // Write to disk and relaunch. The current in-memory AppSettings could
         // otherwise debounce-save its (now-stale) values back over the import.
         try? data.write(to: AppSettings.settingsURL, options: .atomic)
-        // Spawn a re-open after this process exits.
+        // Spawn a re-open before terminating. If the spawn throws (sandbox,
+        // missing /usr/bin/open, etc.), DON'T terminate — leave the user
+        // with the running instance plus the just-written settings.json so
+        // they can quit + relaunch manually.
         let bundlePath = Bundle.main.bundlePath
         let task = Process()
         task.launchPath = "/usr/bin/open"
         task.arguments = ["-n", bundlePath]
-        try? task.run()
-        NSApp.terminate(nil)
+        do {
+            try task.run()
+            NSApp.terminate(nil)
+        } catch {
+            NSLog("Wispr Lightning: failed to relaunch after import — %@", error.localizedDescription)
+            let alert = NSAlert()
+            alert.messageText = "Settings imported, but auto-relaunch failed"
+            alert.informativeText = "Quit and reopen Wispr Lightning to apply the imported configuration. \(error.localizedDescription)"
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
 
     func saveSystemSettings() {
