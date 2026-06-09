@@ -90,12 +90,21 @@ class TextInjector {
     /// which lands non-empty for several of those targets.
     static func readFocusedElementText() -> [String] {
         let systemWide = AXUIElementCreateSystemWide()
+        // Cap each AX IPC at 50ms. With 4 attributes × 2 levels = 8 worst-
+        // case calls, the total budget is now 400ms instead of "however
+        // long a wedged target process takes to respond" (which can be
+        // multiple seconds on a stressed system). The query runs on the
+        // axQueue so this never blocks the recording start path itself,
+        // but bounding latency keeps the OCR + AX pipeline ready before
+        // the user actually finishes dictating.
+        AXUIElementSetMessagingTimeout(systemWide, 0.05)
         var focusedElement: AnyObject?
         let focusResult = AXUIElementCopyAttributeValue(systemWide, kAXFocusedUIElementAttribute as CFString, &focusedElement)
         guard focusResult == .success, let focused = focusedElement else {
             return []
         }
         let element = unsafeBitCast(focused, to: AXUIElement.self)
+        AXUIElementSetMessagingTimeout(element, 0.05)
         let attrs: [CFString] = [
             kAXValueAttribute as CFString,
             kAXSelectedTextAttribute as CFString,
@@ -113,6 +122,7 @@ class TextInjector {
         if AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parent) == .success,
            let p = parent {
             let parentEl = unsafeBitCast(p, to: AXUIElement.self)
+            AXUIElementSetMessagingTimeout(parentEl, 0.05)
             for attr in attrs {
                 if let text = stringValue(parentEl, attribute: attr) {
                     return [text]

@@ -61,14 +61,18 @@ class DatabaseManager {
     /// Apply `migrations` (ordered, idempotent SQL strings) until the
     /// database's user_version matches the count. Stores can add a new
     /// migration by appending to their array — existing installs only run
-    /// the new ones; fresh installs run them all.
+    /// the new ones; fresh installs run them all. Each migration runs in
+    /// its own transaction so partial progress is preserved across crashes.
     func migrate(_ migrations: [String]) {
         queue.sync {
             let current = currentUserVersion()
             guard current < migrations.count else { return }
-            for (idx, sql) in migrations.enumerated() where idx >= current {
+            // Iterate the pending range directly instead of
+            // `enumerated() where idx >= current`, which scanned the prefix
+            // we already knew was past.
+            for idx in current..<migrations.count {
                 exec("BEGIN TRANSACTION;")
-                if sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK {
+                if sqlite3_exec(db, migrations[idx], nil, nil, nil) == SQLITE_OK {
                     setUserVersion(idx + 1)
                     exec("COMMIT;")
                 } else {
