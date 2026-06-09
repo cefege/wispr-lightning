@@ -11,7 +11,13 @@ class HistoryStore {
     }
 
     private func createTable() {
-        let sql = """
+        // Migration list. Append new migrations to the END — never edit or
+        // reorder existing ones; the index is the schema version baked into
+        // PRAGMA user_version on existing installs.
+        dbManager.migrate([
+            // v1 — initial schema (existing installs run this as a no-op
+            // because of IF NOT EXISTS).
+            """
             CREATE TABLE IF NOT EXISTS transcripts (
                 id TEXT PRIMARY KEY,
                 asr_text TEXT,
@@ -23,8 +29,11 @@ class HistoryStore {
                 num_words INTEGER,
                 language TEXT
             );
-            """
-        dbManager.exec(sql)
+            """,
+            // Future migration template:
+            //   "ALTER TABLE transcripts ADD COLUMN provider TEXT;"
+            // Append above this comment when adding columns.
+        ])
     }
 
     func addEntry(result: TranscriptResult, appInfo: [String: String], language: String = "en") {

@@ -104,11 +104,38 @@ class StatusBarController {
     }
 
     func setRecording(_ recording: Bool) {
-        if let button = statusItem.button {
-            button.image = Self.menuBarIcon(
-                accessibilityDescription: recording ? "Recording" : "Wispr Lightning"
-            )
+        isRecordingIcon = recording
+        refreshStatusIcon()
+    }
+
+    private var isRecordingIcon = false
+
+    /// Refresh the menu-bar icon based on whether there's a recording in
+    /// flight AND whether any alert (auth missing / permission revoked) is
+    /// active. Without the alert overlay, an OpenRouter user whose Flow
+    /// session expired (and Flow is in their fallback chain) would have to
+    /// open the menu to discover the problem.
+    private func refreshStatusIcon() {
+        guard let button = statusItem.button else { return }
+        let needsAttention = alertReasonForStatusIcon() != nil
+        button.image = Self.menuBarIcon(
+            accessibilityDescription: isRecordingIcon ? "Recording" : "Wispr Lightning",
+            tintWithAttention: needsAttention
+        )
+    }
+
+    /// Same set of conditions buildMenu uses to pin the orange / red items
+    /// at the top of the menu. When non-nil, the icon gets the attention
+    /// overlay so the user notices without opening the menu.
+    private func alertReasonForStatusIcon() -> String? {
+        let chainVendors: [String] = [settings.activeVendor] + settings.fallbackChain.map { $0.vendor }
+        if chainVendors.contains(DictationVendor.wisprFlow.rawValue) && !session.isValid {
+            return "Wispr Flow sign-in required"
         }
+        if hasPermissionRegression {
+            return "A required permission was revoked"
+        }
+        return nil
     }
 
     /// Cached menu-bar icon — decoded once at first access. Wispr Flow brand
@@ -125,10 +152,41 @@ class StatusBarController {
         return fallback
     }()
 
-    private static func menuBarIcon(accessibilityDescription: String) -> NSImage? {
+    private static func menuBarIcon(accessibilityDescription: String,
+                                    tintWithAttention: Bool = false) -> NSImage? {
+        if tintWithAttention {
+            // Composite a small exclamation badge in the upper-right corner
+            // of the base icon. Built once and cached. The "attention" base
+            // icon is reused for every refresh.
+            if let badged = cachedAttentionIcon {
+                badged.accessibilityDescription = accessibilityDescription + " — needs attention"
+                return badged
+            }
+            return cachedMenuBarIcon
+        }
         cachedMenuBarIcon?.accessibilityDescription = accessibilityDescription
         return cachedMenuBarIcon
     }
+
+    /// Icon with a small exclamation badge overlaid. Decoded once.
+    private static let cachedAttentionIcon: NSImage? = {
+        guard let base = cachedMenuBarIcon else { return nil }
+        let result = NSImage(size: base.size)
+        result.lockFocus()
+        base.draw(in: NSRect(origin: .zero, size: base.size))
+        // Orange badge in the corner.
+        let badgeSide: CGFloat = max(7, base.size.width * 0.42)
+        let badgeRect = NSRect(
+            x: base.size.width - badgeSide,
+            y: base.size.height - badgeSide,
+            width: badgeSide, height: badgeSide
+        )
+        NSColor.systemOrange.setFill()
+        NSBezierPath(ovalIn: badgeRect).fill()
+        result.unlockFocus()
+        result.isTemplate = false
+        return result
+    }()
 
     private func buildMenu() {
         let menu = NSMenu()
@@ -284,6 +342,7 @@ class StatusBarController {
         menu.addItem(quitItem)
 
         self.statusItem.menu = menu
+        refreshStatusIcon()
     }
 
     /// Return crash reports created since this launch's start time (well,

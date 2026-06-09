@@ -77,8 +77,17 @@ class TextInjector {
         }
     }
 
-    /// Read the focused text field's current value via Accessibility API.
-    /// Returns the text as a single-element array, or empty array if unavailable.
+    /// Read the focused element's text context for the transcription model.
+    /// Tries the focused element first, then walks up one AX parent for
+    /// composite chat composers (Slack, Discord, web contenteditable) that
+    /// hold the value on the wrapper rather than the cell. Multiple AX
+    /// attributes are tried in order — apps choose different ones.
+    ///
+    /// kAXValueAttribute alone (the prior implementation) returned empty on
+    /// almost every modern app (Slack, Cursor, Claude Code, terminals, web
+    /// chat composers) — this is documented in CLAUDE.md as the B-002 cause.
+    /// Now we also try selected-text, placeholder, and the parent's value,
+    /// which lands non-empty for several of those targets.
     static func readFocusedElementText() -> [String] {
         let systemWide = AXUIElementCreateSystemWide()
         var focusedElement: AnyObject?
@@ -87,12 +96,38 @@ class TextInjector {
             return []
         }
         let element = unsafeBitCast(focused, to: AXUIElement.self)
-        var value: AnyObject?
-        let valueResult = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
-        guard valueResult == .success, let text = value as? String, !text.isEmpty else {
-            return []
+        let attrs: [CFString] = [
+            kAXValueAttribute as CFString,
+            kAXSelectedTextAttribute as CFString,
+            kAXPlaceholderValueAttribute as CFString,
+            "AXAttributedDescription" as CFString,
+        ]
+        for attr in attrs {
+            if let text = stringValue(element, attribute: attr) {
+                return [text]
+            }
         }
-        return [text]
+        // Try the parent — composite controls sometimes carry the value on
+        // a wrapper element instead of the focused cell.
+        var parent: AnyObject?
+        if AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parent) == .success,
+           let p = parent {
+            let parentEl = unsafeBitCast(p, to: AXUIElement.self)
+            for attr in attrs {
+                if let text = stringValue(parentEl, attribute: attr) {
+                    return [text]
+                }
+            }
+        }
+        return []
+    }
+
+    private static func stringValue(_ element: AXUIElement, attribute: CFString) -> String? {
+        var value: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
+        if let s = value as? String, !s.isEmpty { return s }
+        if let attr = value as? NSAttributedString, !attr.string.isEmpty { return attr.string }
+        return nil
     }
 
     func inject(text: String, completion: @escaping (_ pasteSucceeded: Bool) -> Void) {

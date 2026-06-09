@@ -47,7 +47,7 @@ final class OnboardingWindowController {
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let view = OnboardingView(onContinue: { [weak self] in
+        let view = OnboardingView(settings: settings, onContinue: { [weak self] in
             guard let self else { return }
             self.settings.didCompleteOnboarding = true
             self.settings.save()
@@ -96,6 +96,7 @@ private enum OnboardingStep: Int { case permissions = 0, mic, vendor }
 private struct OnboardingView: View {
     @StateObject private var poller = PermissionStatusPoller()
     @State private var step: OnboardingStep = .permissions
+    let settings: AppSettings
     let onContinue: () -> Void
 
     var body: some View {
@@ -166,7 +167,7 @@ private struct OnboardingView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 24)
 
-            MicTestView()
+            MicTestView(settings: settings)
                 .padding(.horizontal, 20)
         }
     }
@@ -234,6 +235,7 @@ private struct OnboardingView: View {
 /// — opening a second AVAudioEngine against the same input either shows a
 /// flat meter or steals audio from the live recording.
 private struct MicTestView: View {
+    let settings: AppSettings
     @State private var level: Float = 0
     @State private var recorder: AudioRecorder? = nil
     @State private var conflict: Bool = false
@@ -282,7 +284,12 @@ private struct MicTestView: View {
             conflict = true
             return
         }
-        let r = AudioRecorder(settings: AppSettings.load())
+        // Use the LIVE settings instance from the onboarding controller so a
+        // mic device picked here can't drift from what the rest of the app
+        // sees. (AppSettings is effectively a singleton — a second .load()
+        // would create a parallel instance that doesn't observe future
+        // settingsChanged notifications.)
+        let r = AudioRecorder(settings: settings)
         r.onLevelUpdate = { lvl in
             DispatchQueue.main.async { level = lvl }
         }

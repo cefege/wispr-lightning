@@ -93,7 +93,13 @@ class DictionaryStore {
         invalidateCache()
     }
 
-    func getVocabularyPhrases(limit: Int = 50) -> [String] {
+    /// Returns the user's most-used phrases, capped at `limit`. The previous
+    /// 50-row default silently truncated power users with bigger custom
+    /// vocabularies; raised to 500 to match what Wispr Flow / Deepgram /
+    /// OpenAI accept comfortably without bloating the WS auth message.
+    /// Providers can cap further at their own layer (Claude Voice's
+    /// keyterms boost picks the first 20).
+    func getVocabularyPhrases(limit: Int = 500) -> [String] {
         if let cached = cachedVocabulary { return cached }
 
         let sql = "SELECT phrase FROM dictionary WHERE is_snippet = 0 AND is_deleted = 0 ORDER BY frequency_used DESC LIMIT ?;"
@@ -108,6 +114,9 @@ class DictionaryStore {
             if let phrase = dbManager.columnText(stmt, 0) {
                 phrases.append(phrase)
             }
+        }
+        if phrases.count >= limit {
+            NSLog("Wispr Lightning: dictionary phrase fetch hit the limit (%d) — increase if you have more custom terms", limit)
         }
         cachedVocabulary = phrases
         return phrases
