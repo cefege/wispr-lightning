@@ -29,12 +29,24 @@ final class OpenRouterProvider: DictationProvider {
     /// the user at the actual problem (key vs credits vs rate limit vs
     /// server-side outage).
     private static func classifyError(statusCode: Int, body: Data) -> TranscriptionError {
-        // OpenRouter usually returns {"error": {"message": "...", "code": 401}}
-        let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any]
+        // OpenRouter usually returns {"error": {"message": "...", "code": 401}}.
+        // Cap body parse at 64KB so a 1MB CDN error page doesn't burn time.
+        let parseable = body.count <= 64 * 1024 ? body : body.prefix(64 * 1024)
+        let json = (try? JSONSerialization.jsonObject(with: parseable)) as? [String: Any]
         let errorBlob = json?["error"] as? [String: Any]
-        let serverMessage = (errorBlob?["message"] as? String)
-            ?? String(data: body, encoding: .utf8)?.prefix(200).description
-            ?? ""
+        // Only use the body-as-string fallback when it's recognizably JSON or
+        // plain text — HTML / binary error pages just leak raw markup to the
+        // pill. Detect by looking for an opening `<` (HTML) or non-printable
+        // chars in the first 50 bytes.
+        let fallbackText: String? = {
+            guard let head = String(data: parseable.prefix(50), encoding: .utf8) else { return nil }
+            let trimmed = head.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("<") { return nil }  // HTML page
+            return String(data: parseable.prefix(200), encoding: .utf8)?
+                .replacingOccurrences(of: "\n", with: " ")
+                .trimmingCharacters(in: .whitespaces)
+        }()
+        let serverMessage = (errorBlob?["message"] as? String) ?? fallbackText ?? ""
 
         switch statusCode {
         case 401, 403:

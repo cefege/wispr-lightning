@@ -10,8 +10,15 @@ class Session {
     var avatarURL: String?
     var expiresAt: TimeInterval = 0
     let sessionId: String = UUID().uuidString
+    /// Serializes refresh-time writes (URLSession background queue) against
+    /// reads from the main thread (status-bar menu, settings UI). Without
+    /// this an in-flight refresh could be observed mid-write — `accessToken`
+    /// non-nil, `expiresAt` still 0 — and `isValid` returns the wrong answer.
+    private let stateLock = NSLock()
 
     var isValid: Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         guard accessToken != nil else { return false }
         if expiresAt > 0 && Date().timeIntervalSince1970 > expiresAt - 60 {
             return false
@@ -102,16 +109,22 @@ class Session {
 
         guard accessToken != nil else { return false }
 
-        // If avatar or name missing from saved file, enrich from JWT payload
+        // If avatar or name missing from saved file, enrich from JWT payload.
+        // parseSession runs at load time before any other thread can observe
+        // this Session, so it's safe to take the lock briefly.
         if avatarURL == nil || userEmail == nil, let token = accessToken {
-            enrichFromJWT(token)
+            stateLock.lock()
+            enrichFromJWTLocked(token)
+            stateLock.unlock()
         }
 
         NSLog("Wispr Lightning: Session loaded from %@ (user: %@)", source, userEmail ?? "unknown")
         return true
     }
 
-    private func enrichFromJWT(_ token: String) {
+    /// Caller must hold `stateLock`. Same body as the legacy enrichFromJWT
+    /// but explicit about the requirement.
+    private func enrichFromJWTLocked(_ token: String) {
         let segments = token.split(separator: ".", omittingEmptySubsequences: false)
         guard segments.count >= 2 else { return }
         var base64 = String(segments[1])
@@ -161,6 +174,12 @@ class Session {
                 completion(false)
                 return
             }
+            // Hold the lock across all writes — accessToken, expiresAt, and
+            // any fields enrichFromJWT may touch — so a concurrent isValid()
+            // read on the main thread sees a consistent snapshot, never a
+            // half-written state where the token is updated but expiresAt
+            // still reflects the old value (or vice versa).
+            self.stateLock.lock()
             self.accessToken = newAccessToken
             self.refreshToken = newRefreshToken
             let absExpiry = json["expires_at"] as? TimeInterval ?? 0
@@ -168,7 +187,8 @@ class Session {
             self.expiresAt = absExpiry > Date().timeIntervalSince1970
                 ? absExpiry
                 : (relExpiry > 0 ? Date().timeIntervalSince1970 + relExpiry : 0)
-            self.enrichFromJWT(newAccessToken)  // also sets expiresAt from JWT exp if still 0
+            self.enrichFromJWTLocked(newAccessToken)
+            self.stateLock.unlock()
             self.save()
             wLogVerbose("Token refresh response: \(String(data: data, encoding: .utf8)?.prefix(300) ?? "")")
             NSLog("Wispr Lightning: Token refreshed successfully")
@@ -205,6 +225,8 @@ class Session {
     }
 
     func clear() {
+        stateLock.lock()
+        defer { stateLock.unlock() }
         accessToken = nil
         refreshToken = nil
         userId = nil

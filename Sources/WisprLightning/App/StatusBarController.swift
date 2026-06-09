@@ -91,9 +91,13 @@ class StatusBarController {
         let menu = NSMenu()
 
         // Auth alerts — pinned to the top so the user notices before they
-        // press the hotkey and dictate into the void.
-        let activeVendor = DictationVendor(rawValue: settings.activeVendor) ?? .wisprFlow
-        if activeVendor == .wisprFlow && !session.isValid {
+        // press the hotkey and dictate into the void. Trigger when Flow is
+        // configured anywhere in the chain (primary OR fallback), not just
+        // primary — otherwise a chain like OpenRouter→Flow would silently
+        // hit a dead Flow step and the user would never know to re-sign-in.
+        let chainVendors: [String] = [settings.activeVendor] + settings.fallbackChain.map { $0.vendor }
+        let flowInChain = chainVendors.contains(DictationVendor.wisprFlow.rawValue)
+        if flowInChain && !session.isValid {
             let item = NSMenuItem(title: "⚠ Wispr Flow sign-in required",
                                   action: #selector(openSettingsWindow), keyEquivalent: "")
             item.target = self

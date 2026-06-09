@@ -64,10 +64,19 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
             guard let self else { return }
             guard self.inSession, let stream = self.stream else {
                 // beginSession failed (no/expired token, or connect error).
-                // Surface the recorded reason so the pill tells the user what to do.
+                // Surface the recorded reason so the pill tells the user what
+                // to do — and route via .authFailed (non-retryable) when the
+                // failure was auth-class so the fallback chain advances
+                // immediately instead of burning 2x auto-retries.
                 let msg = self.failureMessage ?? "Claude Voice is not signed in. Run `claude /login` in a terminal."
+                let isAuth = self.failureIsAuth
                 self.failureMessage = nil
-                completion(.failure(.serverError(msg)))
+                self.failureIsAuth = false
+                if isAuth {
+                    completion(.failure(.authFailed(msg)))
+                } else {
+                    completion(.failure(.serverError(msg)))
+                }
                 return
             }
             Task { [weak self] in
@@ -88,6 +97,7 @@ final class ClaudeVoiceProvider: NSObject, DictationProvider, VoiceStreamDelegat
             self.finals.removeAll()
             self.packetCount = 0
             self.failureMessage = nil
+            self.failureIsAuth = false
             self.inSession = false
         }
     }

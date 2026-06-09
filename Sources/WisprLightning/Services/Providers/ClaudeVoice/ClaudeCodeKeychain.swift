@@ -104,17 +104,6 @@ enum ClaudeCodeKeychain {
         deleteLegacyMirror()
     }
 
-    /// True if the user has the `claude` CLI's keychain item available
-    /// (without reading it — best-effort signal for UI hints). Returns true
-    /// when we have a fresh mirror OR a recent in-memory cache; doesn't
-    /// distinguish "never logged in" from "haven't checked yet".
-    static var hasFreshToken: Bool {
-        cacheLock.lock(); let c = cachedToken; cacheLock.unlock()
-        if let c, !c.isExpired { return true }
-        if let m = readMirror(), !m.isExpired { return true }
-        return false
-    }
-
     /// Best-effort probe for whether the `claude` CLI is installed on this
     /// Mac. Checks the canonical install locations from `claude install` /
     /// Homebrew / npm. Used to show "Get the Claude CLI" hints in Settings

@@ -167,8 +167,12 @@ class WisprFlowProvider: DictationProvider {
             session.refresh { [weak self] success in
                 guard success, let self = self else {
                     NSLog("Wispr Lightning: Cannot transcribe — auth failed")
-                    // Broadcast so the status bar can flip its indicator.
-                    NotificationCenter.default.post(name: .sessionChanged, object: nil)
+                    // Broadcast on main so the status-bar observer (which
+                    // posts to .main queue) can rebuild its menu without
+                    // cross-queue UI updates.
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: .sessionChanged, object: nil)
+                    }
                     completion(.failure(.authFailed("Wispr Flow sign-in expired and refresh failed. Open Settings → Accounts → Wispr Flow and sign in again.")))
                     return
                 }
