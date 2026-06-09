@@ -2284,8 +2284,13 @@ class SettingsViewModel: ObservableObject {
         panel.nameFieldStringValue = "wispr-lightning-settings.json"
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard let data = try? Data(contentsOf: AppSettings.settingsURL) else { return }
-        try? data.write(to: url)
+        // Encode the live instance directly — reading settingsURL would race
+        // with B-026's 100ms-debounced save, so the export could miss the
+        // setting the user just toggled. Pretty-print for legibility.
+        guard let raw = try? JSONEncoder().encode(settings) else { return }
+        let pretty = (try? JSONSerialization.jsonObject(with: raw))
+            .flatMap { try? JSONSerialization.data(withJSONObject: $0, options: .prettyPrinted) }
+        try? (pretty ?? raw).write(to: url)
     }
 
     func importSettings() {
@@ -2370,6 +2375,18 @@ class SettingsViewModel: ObservableObject {
 
             // Don't add if already in the list
             guard !self.settings.hotkeyKeyCodes.contains(keycode) else {
+                self.stopCapturing()
+                return nil
+            }
+            // Mirror of the polish-side check — refuse a dictation binding
+            // that collides with the polish hotkey, so the same key can't
+            // be bound to both gestures.
+            if self.settings.polishHotkeyKeyCodes.contains(keycode) {
+                let alert = NSAlert()
+                alert.messageText = "That key is already your Polish hotkey"
+                alert.informativeText = "Pick a different key for dictation, or change Polish's binding first."
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
                 self.stopCapturing()
                 return nil
             }

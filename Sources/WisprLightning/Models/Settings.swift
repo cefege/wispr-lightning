@@ -118,9 +118,18 @@ class AppSettings: Codable {
         if let data = try? Data(contentsOf: settingsURL),
            let settings = try? JSONDecoder().decode(AppSettings.self, from: data) {
             // Snapshot a backup of the just-validated file so a future
-            // corruption can recover the last-known-good state.
-            try? FileManager.default.removeItem(at: backupURL)
-            try? FileManager.default.copyItem(at: settingsURL, to: backupURL)
+            // corruption can recover the last-known-good state. Write via
+            // a sibling temp + atomic replace so there's never a window
+            // where the .bak doesn't exist — a crash mid-copy would
+            // otherwise leave the user with no fallback.
+            let tmpURL = backupURL.appendingPathExtension("tmp")
+            try? FileManager.default.removeItem(at: tmpURL)
+            do {
+                try data.write(to: tmpURL, options: .atomic)
+                _ = try? FileManager.default.replaceItemAt(backupURL, withItemAt: tmpURL)
+            } catch {
+                // best-effort — leave any existing .bak in place
+            }
             return applyMigrations(settings)
         }
         if let data = try? Data(contentsOf: backupURL),
