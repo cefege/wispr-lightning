@@ -42,20 +42,20 @@ class DatabaseManager {
         sqlite3_exec(db, sql, nil, nil, nil)
     }
 
-    /// SQLite-native schema version. We track the schema we wrote vs. the
-    /// one the DB currently has and apply migrations in order. Stores call
-    /// `migrate(to:, applying:)` once at init to bring their tables forward.
-    var userVersion: Int {
-        get {
-            var stmt: OpaquePointer?
-            guard sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK else { return 0 }
-            defer { sqlite3_finalize(stmt) }
-            guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
-            return Int(sqlite3_column_int(stmt, 0))
-        }
-        set {
-            sqlite3_exec(db, "PRAGMA user_version = \(newValue);", nil, nil, nil)
-        }
+    /// SQLite-native schema version. Both accessors hit the underlying
+    /// handle directly and MUST be called from within the serial queue —
+    /// they're only used by `migrate(_:)` below, which holds the queue for
+    /// its entire body. Marked private so nothing else can race the queue
+    /// from outside.
+    private func currentUserVersion() -> Int {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA user_version;", -1, &stmt, nil) == SQLITE_OK else { return 0 }
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int(stmt, 0))
+    }
+    private func setUserVersion(_ v: Int) {
+        sqlite3_exec(db, "PRAGMA user_version = \(v);", nil, nil, nil)
     }
 
     /// Apply `migrations` (ordered, idempotent SQL strings) until the
@@ -64,12 +64,12 @@ class DatabaseManager {
     /// the new ones; fresh installs run them all.
     func migrate(_ migrations: [String]) {
         queue.sync {
-            let current = userVersion
+            let current = currentUserVersion()
             guard current < migrations.count else { return }
             for (idx, sql) in migrations.enumerated() where idx >= current {
                 exec("BEGIN TRANSACTION;")
                 if sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK {
-                    userVersion = idx + 1
+                    setUserVersion(idx + 1)
                     exec("COMMIT;")
                 } else {
                     NSLog("Wispr Lightning: schema migration %d failed — %s",

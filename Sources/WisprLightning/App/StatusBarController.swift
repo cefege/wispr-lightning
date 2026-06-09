@@ -168,8 +168,14 @@ class StatusBarController {
         return cachedMenuBarIcon
     }
 
-    /// Icon with a small exclamation badge overlaid. Decoded once.
+    /// Icon with a small exclamation badge overlaid. Decoded once on first
+    /// access — must happen on the main thread because NSImage.lockFocus
+    /// asserts main. All call sites (setRecording, refreshStatusIcon →
+    /// menuBarIcon) run on main today; the assertion below catches any
+    /// future regression that schedules a refresh off-main.
     private static let cachedAttentionIcon: NSImage? = {
+        precondition(Thread.isMainThread,
+                     "cachedAttentionIcon must be initialised on the main thread (lockFocus requirement)")
         guard let base = cachedMenuBarIcon else { return nil }
         let result = NSImage(size: base.size)
         result.lockFocus()
