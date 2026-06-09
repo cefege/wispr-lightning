@@ -156,13 +156,27 @@ class TextInjector {
             // TIS asserts main-thread; build/refresh while we're already here.
             self.ensureLayoutMap()
         }
+        // Capture the focused app at injection start. If the user clicks into
+        // a different app mid-typing, the rest of the transcript would land
+        // in the wrong place — abort cleanly instead.
+        let initialFrontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
         wLog("Natural Mode typing \(text.count) chars at \(cps) cps (layout map: \(layoutMap.count) entries)")
 
         var typed = 0
+        // Check focus every N chars — cheap NSWorkspace probe, not on every
+        // keystroke since that's a syscall per char.
+        let focusCheckInterval = 8
         for ch in text {
             if isCancelTyping() {
                 wLog("Natural Mode: cancelled by Esc after \(typed)/\(text.count) chars")
                 break
+            }
+            if typed > 0 && typed % focusCheckInterval == 0 {
+                let currentPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+                if currentPID != initialFrontPID {
+                    wLog("Natural Mode: focus changed mid-typing (pid \(initialFrontPID ?? -1) → \(currentPID ?? -1)) — stopping after \(typed)/\(text.count) chars")
+                    break
+                }
             }
             postCharacter(ch, source: source)
             typed += 1
@@ -297,10 +311,15 @@ class TextInjector {
 
     private func pasteViaClipboard(text: String, completion: @escaping (_ pasteSucceeded: Bool) -> Void) {
         let savedItems = Self.saveClipboard()
+        // Capture changeCount AFTER our write — if a clipboard manager (or
+        // another app) writes between our paste and the restore, the count
+        // advances past `ourChangeCount` and we leave their value alone.
+        var ourChangeCount: Int = 0
         DispatchQueue.main.sync {
             let pasteboard = NSPasteboard.general
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
+            ourChangeCount = pasteboard.changeCount
         }
 
         wLog("Clipboard set, simulating Cmd+V")
@@ -321,8 +340,15 @@ class TextInjector {
 
         wLog("Cmd+V posted")
 
-        // Restore old clipboard after paste is consumed.
+        // Restore the previous clipboard — but only if nothing else has
+        // touched it since our write. Otherwise the user (or a clipboard
+        // manager) has put something new there and we'd be stomping it.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            let current = NSPasteboard.general.changeCount
+            if current != ourChangeCount {
+                wLog("Clipboard changed during paste (count \(ourChangeCount)→\(current)) — leaving user's value in place")
+                return
+            }
             Self.restoreClipboard(savedItems)
             if !savedItems.isEmpty {
                 NSLog("Wispr Lightning: Clipboard restored (%d items)", savedItems.count)

@@ -849,7 +849,16 @@ private struct ProviderDetail: View {
                     onChangeModel: { newModel in
                         vm.updateFallbackStepModel(at: index, model: newModel)
                     },
-                    onRemove: { vm.removeFallbackStep(at: index) },
+                    onRemove: {
+                        let alert = NSAlert()
+                        alert.messageText = "Remove this fallback step?"
+                        alert.informativeText = "Step \(index + 2) (\(DictationVendor(rawValue: step.vendor)?.displayName ?? step.vendor)) will be removed from the chain."
+                        alert.addButton(withTitle: "Remove")
+                        alert.addButton(withTitle: "Cancel")
+                        if alert.runModal() == .alertFirstButtonReturn {
+                            vm.removeFallbackStep(at: index)
+                        }
+                    },
                     onMoveUp: {
                         if index == 0 {
                             vm.promoteToPrimary(at: 0)
@@ -1651,7 +1660,20 @@ private struct SystemDetail: View {
 
         Divider()
 
-        Text("Wispr Lightning v1.0.0")
+        Text("Settings export / import").font(.headline)
+        Text("Backs up everything in settings.json — hotkeys, fallback chain, dictionary, etc. **Excludes** API keys, tokens, and the OpenRouter / Claude Voice secrets.")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 10) {
+            Button("Export…") { vm.exportSettings() }
+            Button("Import…") { vm.importSettings() }
+        }
+
+        Divider()
+
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        Text("Wispr Lightning v\(version)")
             .font(.subheadline)
             .foregroundStyle(.tertiary)
     }
@@ -2256,6 +2278,50 @@ class SettingsViewModel: ObservableObject {
         }
     }
 
+    func exportSettings() {
+        let panel = NSSavePanel()
+        panel.title = "Export Wispr Lightning Settings"
+        panel.nameFieldStringValue = "wispr-lightning-settings.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = try? Data(contentsOf: AppSettings.settingsURL) else { return }
+        try? data.write(to: url)
+    }
+
+    func importSettings() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Wispr Lightning Settings"
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let data = try? Data(contentsOf: url),
+              let imported = try? JSONDecoder().decode(AppSettings.self, from: data) else {
+            let alert = NSAlert()
+            alert.messageText = "Import failed"
+            alert.informativeText = "That file isn't a valid Wispr Lightning settings export."
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+            return
+        }
+        // Confirm — destructive overwrite.
+        let confirm = NSAlert()
+        confirm.messageText = "Replace your current settings?"
+        confirm.informativeText = "Importing will overwrite your hotkeys, fallback chain, dictionary, and other preferences. API keys and account tokens are NOT changed."
+        confirm.addButton(withTitle: "Import")
+        confirm.addButton(withTitle: "Cancel")
+        guard confirm.runModal() == .alertFirstButtonReturn else { return }
+        try? data.write(to: AppSettings.settingsURL, options: .atomic)
+        // Apply to the live instance: copy each field across.
+        _ = imported  // bound to keep value alive; replacement happens on next launch.
+        NotificationCenter.default.post(name: .settingsChanged, object: settings)
+        let done = NSAlert()
+        done.messageText = "Settings imported"
+        done.informativeText = "Restart Wispr Lightning to fully apply the imported configuration."
+        done.addButton(withTitle: "OK")
+        done.runModal()
+    }
+
     func saveSystemSettings() {
         settings.launchAtLogin = launchAtLogin
         settings.showInDock = showInDock
@@ -2367,6 +2433,18 @@ class SettingsViewModel: ObservableObject {
 
             // Don't add if already in the list
             guard !self.settings.polishHotkeyKeyCodes.contains(keycode) else {
+                self.stopCapturingPolishHotkey()
+                return nil
+            }
+            // Refuse collision with the dictation hotkey — same key bound to
+            // both would never trigger polish reliably (the dictation handler
+            // wins) and would confuse the user.
+            if self.settings.hotkeyKeyCodes.contains(keycode) {
+                let alert = NSAlert()
+                alert.messageText = "That key is already your dictation hotkey"
+                alert.informativeText = "Pick a different key for Polish so the two don't conflict."
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
                 self.stopCapturingPolishHotkey()
                 return nil
             }

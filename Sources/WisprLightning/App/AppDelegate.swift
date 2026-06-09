@@ -1,11 +1,17 @@
 import AppKit
 import ApplicationServices
 
-private let logFile: FileHandle? = {
-    let path = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/WisprLightning.log").path
-    FileManager.default.createFile(atPath: path, contents: nil)
-    return FileHandle(forWritingAtPath: path)
+private let logFilePath: String = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Logs/WisprLightning.log").path
+private let logRotatedPath: String = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Logs/WisprLightning.log.1").path
+/// Cap the live log at 5 MB. When exceeded, rotate (mv to .log.1, drop the
+/// previous .log.1) so disk usage stays bounded but recent history survives.
+private let logMaxBytes: UInt64 = 5 * 1024 * 1024
+
+private var logFile: FileHandle? = {
+    FileManager.default.createFile(atPath: logFilePath, contents: nil)
+    return FileHandle(forWritingAtPath: logFilePath)
 }()
 
 private let logQueue = DispatchQueue(label: "com.wisprlightning.log")
@@ -13,13 +19,31 @@ private let logDateFormatter: ISO8601DateFormatter = {
     let f = ISO8601DateFormatter()
     return f
 }()
+private var logBytesWritten: UInt64 = {
+    let attrs = try? FileManager.default.attributesOfItem(atPath: logFilePath)
+    return (attrs?[.size] as? UInt64) ?? 0
+}()
+
+private func rotateLogIfNeeded(addedBytes: Int) {
+    logBytesWritten &+= UInt64(addedBytes)
+    guard logBytesWritten > logMaxBytes else { return }
+    logFile?.closeFile()
+    // Drop previous rotated file, move current → .1, start fresh.
+    try? FileManager.default.removeItem(atPath: logRotatedPath)
+    try? FileManager.default.moveItem(atPath: logFilePath, toPath: logRotatedPath)
+    FileManager.default.createFile(atPath: logFilePath, contents: nil)
+    logFile = FileHandle(forWritingAtPath: logFilePath)
+    logBytesWritten = 0
+}
 
 func wLog(_ message: String) {
     logQueue.async {
         let ts = logDateFormatter.string(from: Date())
         let line = "[\(ts)] \(message)\n"
+        let data = line.data(using: .utf8) ?? Data()
         logFile?.seekToEndOfFile()
-        logFile?.write(line.data(using: .utf8) ?? Data())
+        logFile?.write(data)
+        rotateLogIfNeeded(addedBytes: data.count)
     }
     NSLog("Wispr Lightning: %@", message)
 }
@@ -198,6 +222,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             _ = self.dictionaryStore.getVocabularyPhrases()
             _ = self.dictionaryStore.getReplacements()
             _ = self.dictionaryStore.getSnippets()
+            // Prune old / excess history rows so the SQLite file doesn't
+            // accumulate forever on long-running installs.
+            self.historyStore.prune()
         }
 
         // Abort recording if Mac goes to sleep
@@ -763,6 +790,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Opportunistic cleanup of stale PendingAudio files. Called after every
+    /// dictation completes so a long-running install (no relaunch in weeks)
+    /// doesn't accumulate 24h+ of failed-recovery .pcm files.
+    private func sweepStalePendingAudio() {
+        let dir = Self.pendingAudioDir
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.creationDateKey]
+        ) else { return }
+        let now = Date()
+        for file in files where file.pathExtension == "pcm" {
+            // Don't sweep the file we're currently using.
+            if let active = pendingAudioFileURL, file == active { continue }
+            guard let created = (try? file.resourceValues(forKeys: [.creationDateKey]).creationDate),
+                  now.timeIntervalSince(created) > 86400 else { continue }
+            try? FileManager.default.removeItem(at: file)
+        }
+    }
+
     private func clearPendingTranscription() {
         processingTimeoutTimer?.invalidate()
         processingTimeoutTimer = nil
@@ -788,6 +833,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             dictationProvider.cancel()
             dictationProvider = Self.makeProvider(vendor: activeVendor, session: session, settings: settings)
             dictationProvider.dictionaryStore = dictionaryStore
+        }
+        // Opportunistic sweep — cheap, runs once per dictation.
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            self?.sweepStalePendingAudio()
         }
     }
 

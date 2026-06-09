@@ -96,6 +96,31 @@ class HistoryStore {
         dbManager.exec("DELETE FROM transcripts;")
     }
 
+    /// Prune rows older than `days` plus cap the total at `cap`. Called once
+    /// at launch; keeps the SQLite file from accumulating tens of thousands
+    /// of entries that would slow History queries and bloat disk.
+    func prune(olderThanDays days: Int = 180, cap: Int = 10_000) {
+        let cutoff = Date().timeIntervalSince1970 - Double(days) * 86400
+        dbManager.sync {
+            var stmt: OpaquePointer?
+            let sqlByAge = "DELETE FROM transcripts WHERE timestamp < ?;"
+            if sqlite3_prepare_v2(db, sqlByAge, -1, &stmt, nil) == SQLITE_OK {
+                sqlite3_bind_double(stmt, 1, cutoff)
+                sqlite3_step(stmt)
+                sqlite3_finalize(stmt)
+            }
+            // Cap by id-newest — DELETE FROM ... WHERE id NOT IN (SELECT id
+            // FROM ... ORDER BY timestamp DESC LIMIT cap).
+            let sqlCap = """
+                DELETE FROM transcripts
+                WHERE id NOT IN (
+                    SELECT id FROM transcripts ORDER BY timestamp DESC LIMIT \(cap)
+                );
+                """
+            sqlite3_exec(db, sqlCap, nil, nil, nil)
+        }
+    }
+
     func todayStats() -> (dictations: Int, words: Int) {
         let startOfDay = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
         let sql = "SELECT COUNT(*), COALESCE(SUM(num_words), 0) FROM transcripts WHERE timestamp >= ?;"

@@ -111,14 +111,29 @@ class AppSettings: Codable {
         return dir.appendingPathComponent("settings.json")
     }()
 
+    static var backupURL: URL { settingsURL.appendingPathExtension("bak") }
+
     static func load() -> AppSettings {
-        guard FileManager.default.fileExists(atPath: settingsURL.path),
-              let data = try? Data(contentsOf: settingsURL),
-              let settings = try? JSONDecoder().decode(AppSettings.self, from: data) else {
-            let settings = AppSettings()
-            settings.save()
-            return settings
+        // Primary path; fall back to .bak if main file is missing or corrupt.
+        if let data = try? Data(contentsOf: settingsURL),
+           let settings = try? JSONDecoder().decode(AppSettings.self, from: data) {
+            // Snapshot a backup of the just-validated file so a future
+            // corruption can recover the last-known-good state.
+            try? FileManager.default.removeItem(at: backupURL)
+            try? FileManager.default.copyItem(at: settingsURL, to: backupURL)
+            return applyMigrations(settings)
         }
+        if let data = try? Data(contentsOf: backupURL),
+           let settings = try? JSONDecoder().decode(AppSettings.self, from: data) {
+            NSLog("Wispr Lightning: settings.json was unreadable; restored from .bak")
+            return applyMigrations(settings)
+        }
+        let settings = AppSettings()
+        settings.save()
+        return settings
+    }
+
+    private static func applyMigrations(_ settings: AppSettings) -> AppSettings {
         // One-time migration: older settings files only carried the legacy
         // single-key fields. Seed the array form from them so the rest of the
         // app (which only reads the array) sees the user's previous binding.

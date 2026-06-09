@@ -59,6 +59,16 @@ class AudioRecorder {
             guard let self = self else { return }
             NSLog("Wispr Lightning: AVAudioEngine configuration changed")
             self.invalidateDeviceCache()
+            // If we were prewarmed (mic kept hot in the background), the
+            // engine often comes back wedged after a Bluetooth disconnect or
+            // long sleep. Force-stop here so the next start() reinitialises
+            // cleanly instead of inheriting a half-dead engine state.
+            if self.isPrewarmed && !self.isRecording {
+                self.audioEngine.inputNode.removeTap(onBus: 0)
+                self.audioEngine.stop()
+                self.isPrewarmed = false
+                NSLog("Wispr Lightning: Audio engine force-reset after config change")
+            }
             DispatchQueue.main.async {
                 NotificationCenter.default.post(name: .audioDevicesChanged, object: nil)
             }

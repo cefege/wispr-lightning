@@ -246,10 +246,63 @@ class StatusBarController {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Recent crash report — show one menu item per new .ips file under
+        // ~/Library/Logs/DiagnosticReports/. Clicking reveals it in Finder
+        // so the user can drag it into a bug report.
+        if let crashes = Self.recentCrashReports(), !crashes.isEmpty {
+            menu.addItem(NSMenuItem.separator())
+            for url in crashes.prefix(2) {
+                let item = NSMenuItem(title: "🐞 Reveal crash report (\(url.lastPathComponent))",
+                                      action: #selector(revealCrashReport(_:)), keyEquivalent: "")
+                item.target = self
+                item.representedObject = url
+                menu.addItem(item)
+            }
+        }
+
+        // Build / version footer — pulled from Info.plist (set by install.sh).
+        menu.addItem(NSMenuItem.separator())
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+        let versionItem = NSMenuItem(title: "Wispr Lightning v\(version)", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        versionItem.attributedTitle = NSAttributedString(
+            string: "Wispr Lightning v\(version)",
+            attributes: [.font: font, .foregroundColor: NSColor.tertiaryLabelColor]
+        )
+        menu.addItem(versionItem)
+
         let quitItem = NSMenuItem(title: "Quit Wispr Lightning", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
         menu.addItem(quitItem)
 
         self.statusItem.menu = menu
+    }
+
+    /// Return crash reports created since this launch's start time (well,
+    /// within the last 7 days as a heuristic) — newest first.
+    private static func recentCrashReports() -> [URL]? {
+        let dir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/DiagnosticReports")
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.creationDateKey]
+        ) else { return nil }
+        let recent = files.filter { url in
+            url.lastPathComponent.lowercased().contains("wisprlightning") &&
+            (url.pathExtension == "ips" || url.pathExtension == "crash")
+        }.sorted { lhs, rhs in
+            let l = (try? lhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            let r = (try? rhs.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            return l > r
+        }.filter { url in
+            guard let c = try? url.resourceValues(forKeys: [.creationDateKey]).creationDate else { return false }
+            return Date().timeIntervalSince(c) < 7 * 86400
+        }
+        return recent.isEmpty ? nil : recent
+    }
+
+    @objc private func revealCrashReport(_ sender: NSMenuItem) {
+        guard let url = sender.representedObject as? URL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     func openSettings() {
