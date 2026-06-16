@@ -294,8 +294,13 @@ class AudioRecorder {
 
         guard error == nil, outputBuffer.frameLength > 0 else { return }
 
-        // Extract Int16 samples and split into 640-sample (40ms) chunks
-        let int16Ptr = outputBuffer.int16ChannelData![0]
+        // Extract Int16 samples and split into 640-sample (40ms) chunks.
+        // Guard the unwrap — int16ChannelData is nil if the converter handed
+        // us back a non-Int16 buffer (rare, but possible if the device-format
+        // negotiation in installTap fell back to Float). Crashing here loses
+        // the user's whole recording; silently dropping the bad packet keeps
+        // them recording instead.
+        guard let int16Ptr = outputBuffer.int16ChannelData?[0] else { return }
         let totalSamples = Int(outputBuffer.frameLength)
         let chunkSize = Constants.chunkSamples
 

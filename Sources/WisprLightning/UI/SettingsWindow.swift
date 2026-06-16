@@ -1091,6 +1091,10 @@ private struct AccountsDetail: View {
             vendorCard(title: DictationVendor.claudeVoice.displayName) {
                 ClaudeVoiceAuthRow()
             }
+
+            vendorCard(title: DictationVendor.deepgram.displayName) {
+                DeepgramAccountPanel(vm: vm)
+            }
         }
         .onAppear { vm.loadOpenRouterModels() }
     }
@@ -1181,6 +1185,107 @@ private struct OpenRouterAccountPanel: View {
                     .foregroundColor(testIsError ? .red : .secondary)
                     .lineLimit(2)
             }
+        }
+    }
+}
+
+/// Deepgram API key + Language picker + Test connection. Lives in the
+/// Accounts tab; Nova-3 is hard-coded as the model (no per-vendor model
+/// picker since Deepgram's other models are either older or specialized
+/// for voice-agent turn detection — neither is right for PTT dictation).
+private struct DeepgramAccountPanel: View {
+    @ObservedObject var vm: SettingsViewModel
+    @State private var revealKey = false
+    @State private var testStatus = ""
+    @State private var testIsError = false
+    @State private var testing = false
+
+    var body: some View {
+        HStack {
+            Text("BYO key. You pay Deepgram directly ($0.0048/min for Nova-3, $200 free credit). Get a key at console.deepgram.com.")
+                .font(.callout)
+                .foregroundColor(.secondary)
+            Spacer()
+            if vm.hasDeepgramAPIKey {
+                Label("Saved", systemImage: "checkmark.seal.fill")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+            }
+        }
+
+        HStack(spacing: 8) {
+            Group {
+                if revealKey {
+                    TextField("API key (paste to replace, leave empty to keep saved)", text: $vm.deepgramAPIKey)
+                } else {
+                    SecureField("API key (paste to replace, leave empty to keep saved)", text: $vm.deepgramAPIKey)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .font(.system(.body, design: .monospaced))
+
+            Button {
+                if !revealKey {
+                    vm.loadDeepgramAPIKeyIfNeeded()
+                }
+                revealKey.toggle()
+            } label: {
+                Image(systemName: revealKey ? "eye.slash" : "eye")
+            }
+            .help(revealKey ? "Hide key" : "Show saved key")
+        }
+
+        HStack(spacing: 10) {
+            Button("Save") {
+                if vm.saveDeepgramAPIKey() {
+                    testStatus = "Saved."
+                    testIsError = false
+                } else {
+                    testStatus = "Save failed — couldn't write to secrets.json."
+                    testIsError = true
+                }
+            }
+            .disabled(vm.deepgramAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            Button(testing ? "Testing…" : "Test connection") {
+                testing = true
+                testStatus = ""
+                vm.testDeepgramConnection { ok, msg in
+                    testing = false
+                    testStatus = msg
+                    testIsError = !ok
+                }
+            }
+            .disabled(testing || (!vm.hasDeepgramAPIKey && vm.deepgramAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+
+            if !testStatus.isEmpty {
+                Text(testStatus)
+                    .font(.callout)
+                    .foregroundColor(testIsError ? .red : .secondary)
+                    .lineLimit(2)
+            }
+        }
+
+        // Language picker. Auto-detect and Multilingual are Deepgram-specific
+        // modes, kept above the BCP-47 list so they're easy to spot.
+        HStack(spacing: 10) {
+            Text("Language")
+                .font(.callout)
+                .foregroundColor(.secondary)
+            Picker("", selection: $vm.deepgramLanguage) {
+                Text("Auto-detect").tag(DeepgramLanguage.autoDetectCode)
+                Text("Multilingual (code-switching)").tag(DeepgramLanguage.multiCode)
+                Divider()
+                ForEach(DeepgramLanguage.entries) { entry in
+                    Text("\(entry.name) (\(entry.code))").tag(entry.code)
+                }
+            }
+            .labelsHidden()
+            .frame(maxWidth: 320)
+            .onChange(of: vm.deepgramLanguage) { _ in
+                vm.saveDeepgramLanguage()
+            }
+            Spacer()
         }
     }
 }
@@ -1764,6 +1869,8 @@ class SettingsViewModel: ObservableObject {
     @Published var openRouterModelList: [OpenRouterAudioModel] = []
     @Published var openRouterModelListState: OpenRouterModelListState = .idle
     @Published var fallbackChain: [FallbackStep] = []
+    @Published var deepgramAPIKey: String
+    @Published var deepgramLanguage: String
 
     enum OpenRouterModelListState: Equatable {
         case idle
@@ -1960,6 +2067,9 @@ class SettingsViewModel: ObservableObject {
         // user only came to change a hotkey or pick a vendor.
         self.openRouterAPIKey = ""
         self.fallbackChain = settings.fallbackChain
+        // Same deferred-read pattern as openRouterAPIKey.
+        self.deepgramAPIKey = ""
+        self.deepgramLanguage = settings.deepgramLanguage
 
         refreshMicDevices()
         availableSoundPacks = SoundManager.availablePacks()
@@ -2008,6 +2118,75 @@ class SettingsViewModel: ObservableObject {
     /// show "saved ✓" in the Accounts panel without triggering any access.
     var hasOpenRouterAPIKey: Bool {
         return SecretsStore.has(.openRouterAPIKey)
+    }
+
+    // MARK: - Deepgram
+
+    @discardableResult
+    func saveDeepgramAPIKey() -> Bool {
+        let trimmed = deepgramAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        return SecretsStore.write(.deepgramAPIKey, trimmed)
+    }
+
+    private var deepgramKeyLoaded = false
+    func loadDeepgramAPIKeyIfNeeded() {
+        guard !deepgramKeyLoaded else { return }
+        deepgramKeyLoaded = true
+        deepgramAPIKey = SecretsStore.read(.deepgramAPIKey) ?? ""
+    }
+
+    var hasDeepgramAPIKey: Bool {
+        return SecretsStore.has(.deepgramAPIKey)
+    }
+
+    func saveDeepgramLanguage() {
+        settings.deepgramLanguage = deepgramLanguage
+        settings.save()
+    }
+
+    /// Pings Deepgram's projects endpoint with the entered/saved key to
+    /// verify it's accepted. Same pattern as testOpenRouterConnection.
+    func testDeepgramConnection(_ completion: @escaping (Bool, String) -> Void) {
+        let typed = deepgramAPIKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = !typed.isEmpty ? typed : (SecretsStore.read(.deepgramAPIKey) ?? "")
+        guard !key.isEmpty else {
+            completion(false, "No API key saved or entered")
+            return
+        }
+        var request = URLRequest(url: URL(string: "https://api.deepgram.com/v1/projects")!)
+        request.setValue("Token \(key)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 15
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            DispatchQueue.main.async {
+                if let error = error {
+                    completion(false, error.localizedDescription)
+                    return
+                }
+                if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                    let detail: String
+                    switch http.statusCode {
+                    case 401, 403: detail = "API key rejected"
+                    default: detail = "HTTP \(http.statusCode)"
+                    }
+                    completion(false, detail)
+                    return
+                }
+                // Body shape: {"projects": [{"project_id": "...", "name": "..."}, ...]}
+                // Surface the first project name so the user sees which workspace
+                // the key is bound to — handy when juggling multiple Deepgram accts.
+                var projectName = ""
+                if let data = data,
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let projects = json["projects"] as? [[String: Any]],
+                   let first = projects.first,
+                   let name = first["name"] as? String {
+                    projectName = name
+                }
+                let msg = projectName.isEmpty ? "Connected." : "Connected — project: \(projectName)"
+                completion(true, msg)
+            }
+        }.resume()
     }
 
     // MARK: - Fallback chain

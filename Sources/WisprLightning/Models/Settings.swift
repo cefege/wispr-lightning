@@ -99,6 +99,12 @@ class AppSettings: Codable {
     /// and walks the chain on subsequent failures.
     var fallbackChain: [FallbackStep] = []
 
+    /// Deepgram language for the streaming request. BCP-47 code (e.g. "en",
+    /// "es") OR one of the sentinels `"__auto__"` (sets `detect_language=true`)
+    /// or `"__multi__"` (sets `language=multi`). Deepgram-specific because
+    /// auto-detect and multi-mode don't translate cleanly to other vendors.
+    var deepgramLanguage: String = "en"
+
     // Onboarding — flipped to true once the user has closed the wizard at
     // least once. The wizard still auto-shows on subsequent launches if any
     // required permission is missing.

@@ -6,12 +6,14 @@ enum DictationVendor: String, CaseIterable {
     case wisprFlow = "wispr_flow"
     case openRouter = "openrouter"
     case claudeVoice = "claude_voice"
+    case deepgram = "deepgram"
 
     var displayName: String {
         switch self {
         case .wisprFlow:   return "Wispr Flow"
         case .openRouter:  return "OpenRouter"
         case .claudeVoice: return "Claude Voice"
+        case .deepgram:    return "Deepgram"
         }
     }
 
@@ -34,6 +36,9 @@ enum DictationVendor: String, CaseIterable {
             let path = NSHomeDirectory() + "/.config/claude/credentials.json"
             return FileManager.default.fileExists(atPath: path)
                 || ClaudeCodeCredentialFileLikelyExists()
+        case .deepgram:
+            return SecretsStore.has(.deepgramAPIKey)
+                || ProcessInfo.processInfo.environment["WISPR_LIGHTNING_DEEPGRAM_KEY"]?.isEmpty == false
         }
     }
 }

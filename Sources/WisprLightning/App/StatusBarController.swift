@@ -8,9 +8,11 @@ class StatusBarController {
     private let dictionaryStore: DictionaryStore
     private let notesStore: NotesStore
     private let textInjector: TextInjector
+    private let telemetryStore: TelemetryStore
     private var settingsWindowController: SettingsWindowController?
     private var lastTranscription: String?
     private var sessionObserver: NSObjectProtocol?
+    private var telemetryObserver: NSObjectProtocol?
     /// Polls TCC permissions every 30s while the app is alive so a mid-session
     /// revocation (user opens Privacy & Security and toggles Accessibility
     /// off) flips the menu warning instead of waiting for the next launch.
@@ -29,13 +31,14 @@ class StatusBarController {
     /// Wired by AppDelegate to re-open the permissions wizard.
     var onShowOnboarding: (() -> Void)?
 
-    init(session: Session, settings: AppSettings, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore, textInjector: TextInjector) {
+    init(session: Session, settings: AppSettings, historyStore: HistoryStore, dictionaryStore: DictionaryStore, notesStore: NotesStore, textInjector: TextInjector, telemetryStore: TelemetryStore) {
         self.session = session
         self.settings = settings
         self.historyStore = historyStore
         self.dictionaryStore = dictionaryStore
         self.notesStore = notesStore
         self.textInjector = textInjector
+        self.telemetryStore = telemetryStore
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem.button {
@@ -57,6 +60,13 @@ class StatusBarController {
             self?.buildMenu()
         }
 
+        telemetryObserver = NotificationCenter.default.addObserver(
+            forName: .telemetryUpdated,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.buildMenu()
+        }
+
         // Low-rate TCC poll so a mid-session revocation doesn't go unnoticed.
         permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             self?.checkPermissionDrift()
@@ -65,6 +75,9 @@ class StatusBarController {
 
     deinit {
         if let observer = sessionObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = telemetryObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         permissionPollTimer?.invalidate()
@@ -252,6 +265,20 @@ class StatusBarController {
         undoItem.isEnabled = !(lastTranscription?.isEmpty ?? true)
         menu.addItem(undoItem)
 
+        // Recent dictations submenu — per-attempt telemetry so the user can
+        // see at a glance whether fallbacks are firing, watchdogs are
+        // tripping, and which providers are answering in practice.
+        let recents = telemetryStore.recent()
+        if !recents.isEmpty {
+            let recentItem = NSMenuItem(title: "Recent dictations", action: nil, keyEquivalent: "")
+            let recentMenu = NSMenu()
+            for record in recents {
+                recentMenu.addItem(Self.makeTelemetryItem(record))
+            }
+            recentItem.submenu = recentMenu
+            menu.addItem(recentItem)
+        }
+
         menu.addItem(NSMenuItem.separator())
 
         // Input Device submenu
@@ -349,6 +376,38 @@ class StatusBarController {
 
         self.statusItem.menu = menu
         refreshStatusIcon()
+    }
+
+    /// Format an `AttemptRecord` as a status-bar submenu item.
+    /// Title shape: "✓ Deepgram • 2.4s  3:45 PM"
+    /// With a secondary line via toolTip when there's a transcript preview
+    /// or failure message, so the user can hover for context without the
+    /// menu width ballooning.
+    private static func makeTelemetryItem(_ record: AttemptRecord) -> NSMenuItem {
+        let timeFmt = DateFormatter()
+        timeFmt.timeStyle = .short
+        let timestamp = timeFmt.string(from: record.timestamp)
+
+        var pieces: [String] = [record.symbol]
+        if let vendor = record.finalVendor {
+            pieces.append(vendor)
+        }
+        if record.fallbackHops > 0 {
+            pieces.append("(+\(record.fallbackHops) hops)")
+        }
+        if record.watchdogFired {
+            pieces.append("⏱")
+        }
+        pieces.append("• \(String(format: "%.1fs", record.elapsedSeconds))")
+        pieces.append("  \(timestamp)")
+        let title = pieces.joined(separator: " ")
+
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = false
+        if let preview = record.preview, !preview.isEmpty {
+            item.toolTip = preview
+        }
+        return item
     }
 
     /// Return crash reports created since this launch's start time (well,

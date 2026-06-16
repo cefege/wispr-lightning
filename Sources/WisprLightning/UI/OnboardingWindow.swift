@@ -371,6 +371,8 @@ private struct VendorChoice: View {
             return "BYO API key. Pay OpenRouter directly for any audio-input model (Gemini, Whisper, etc.). Set up in Accounts."
         case .claudeVoice:
             return "Uses the `claude` CLI's stored credentials. Live streaming. Run `claude /login` once if you haven't."
+        case .deepgram:
+            return "BYO API key. Pay Deepgram directly ($0.0048/min for Nova-3, $200 free credit). Set up in Accounts."
         }
     }
 }

@@ -27,7 +27,10 @@ private var logBytesWritten: UInt64 = {
 private func rotateLogIfNeeded(addedBytes: Int) {
     logBytesWritten &+= UInt64(addedBytes)
     guard logBytesWritten > logMaxBytes else { return }
-    logFile?.closeFile()
+    // Use the throwing `close()` (macOS 10.15+) instead of `closeFile()` —
+    // the legacy variant raises NSExceptions that can't be caught from Swift
+    // and crash the process when the descriptor is already gone.
+    try? logFile?.close()
     // Drop previous rotated file, move current → .1, start fresh.
     try? FileManager.default.removeItem(atPath: logRotatedPath)
     try? FileManager.default.moveItem(atPath: logFilePath, toPath: logRotatedPath)
@@ -41,9 +44,21 @@ func wLog(_ message: String) {
         let ts = logDateFormatter.string(from: Date())
         let line = "[\(ts)] \(message)\n"
         let data = line.data(using: .utf8) ?? Data()
-        logFile?.seekToEndOfFile()
-        logFile?.write(data)
-        rotateLogIfNeeded(addedBytes: data.count)
+        // Use the throwing APIs (macOS 10.15+). The legacy `seekToEndOfFile`
+        // and `write(_:)` raise NSExceptions on a bad descriptor (closed file,
+        // I/O error) which Swift can't catch — they abort the process. With
+        // `seekToEnd()` / `write(contentsOf:)` we get a regular `Error`, can
+        // null out the handle, and fall back to NSLog so subsequent log calls
+        // are silent on disk but still visible in Console.app.
+        guard let handle = logFile else { return }
+        do {
+            try handle.seekToEnd()
+            try handle.write(contentsOf: data)
+            rotateLogIfNeeded(addedBytes: data.count)
+        } catch {
+            logFile = nil
+            NSLog("Wispr Lightning: log write failed (%@); further log lines will go to NSLog only", error.localizedDescription)
+        }
     }
     NSLog("Wispr Lightning: %@", message)
 }
@@ -76,6 +91,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastPressTime: Date?
     private static let lockDebounceInterval: TimeInterval = 0.5
     private static let trailingBufferInterval: TimeInterval = 0.5
+    /// Short tail capture after a tap-to-stop press in toggle / locked modes.
+    /// Without it, the final word often clips because the user releases the
+    /// thought a frame before the syllable finishes. 0.25s matches typical
+    /// utterance-end inertia without delaying transcription perceptibly.
+    private static let toggleStopTrailingBuffer: TimeInterval = 0.25
     private var isRecording: Bool { recordingState != .idle }
     private var recordingOverlay: RecordingOverlay!
     private var toastNotification: ToastNotification!
@@ -98,19 +118,44 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var cmdCommaMonitor: Any?
     private var onboardingController: OnboardingWindowController?
     private var pendingPackets: [Data]?
-    private var pendingAudioFileURL: URL?
+    /// Owns the .pcm file for the in-flight / pending dictation. Replaces
+    /// the previous trio of `activeRecordingFileHandle`,
+    /// `activeRecordingFileURL`, `pendingAudioFileURL`. Lives from open() in
+    /// startRecordingSession through delete() in the inject success path
+    /// (or other terminal sites).
+    private var pendingAudio: RecordingArtifact?
     private var pendingAppInfo: [String: String]?
     private var pendingOcrContext: [String]?
     private var pendingAxContext: [String]?
     private var currentRetryAttempt = 0
     private var isTranscribing = false
     private static let maxAutoRetries = 2
+    /// Recent-attempt telemetry surfaced in the status-bar "Recent
+    /// dictations" submenu. Lets the user (and us) see whether the fallback
+    /// chain and watchdog are doing anything in practice.
+    private let telemetryStore = TelemetryStore()
+    /// Set when the current attempt starts (after audio capture stops, before
+    /// dictationProvider.stop). Used to compute elapsed at terminal outcome.
+    private var attemptStartedAt: Date?
+    /// True if any per-provider watchdog fired during the current attempt.
+    /// Reset per fresh dictation, propagated through chain hops.
+    private var attemptWatchdogFired = false
+    /// Per-provider hard ceiling. Scaled by recording duration in
+    /// `providerWatchdogTimeout(for:)` because some backends (OpenRouter +
+    /// Gemini doing audio-in-and-text-out, Wispr Flow on a long upload) take
+    /// proportional time to a 10-minute recording — a flat 45s would
+    /// pre-empt a legitimately slow result and falsely advance the chain.
+    private static let perProviderWatchdogBase: TimeInterval = 45
+    private static let perProviderWatchdogPerSecond: TimeInterval = 0.4
+    private static let perProviderWatchdogCap: TimeInterval = 300
     /// Index into the fallback chain. 0 = primary vendor (settings.activeVendor);
     /// 1..N = settings.fallbackChain[index - 1]. Reset to 0 between dictations.
     private var currentChainIndex: Int = 0
     private static let pendingAudioDir: URL = {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("WisprLightning/PendingAudio")
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support")
+        let dir = base.appendingPathComponent("WisprLightning/PendingAudio")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()
@@ -141,11 +186,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             historyStore: historyStore,
             dictionaryStore: dictionaryStore,
             notesStore: notesStore,
-            textInjector: textInjector
+            textInjector: textInjector,
+            telemetryStore: telemetryStore
         )
 
         recordingOverlay = RecordingOverlay()
         recordingOverlay.prewarm()
+        recordingOverlay.onCancelAction = { [weak self] in
+            self?.cancelActiveRecording()
+        }
         toastNotification = ToastNotification()
 
         isVerboseLoggingEnabled = settings.verboseLogging
@@ -167,7 +216,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if let targetUID = self.settings.micDeviceUID {
                     let devices = AudioRecorder.listInputDevices()
                     if !devices.contains(where: { $0.uid == targetUID }) {
-                        wLog("Target mic '\(self.settings.micDeviceName ?? targetUID)' disconnected during recording")
+                        // Mid-recording mic disconnect (AirPods walk out of
+                        // range, USB mic unplugged). Previously we just logged
+                        // and let the engine keep capturing against whatever
+                        // device CoreAudio fell back to — silently producing
+                        // wrong-source audio. Now: stop the session so the
+                        // packets we DID capture get transcribed and the user
+                        // sees an immediate result instead of a corrupted one.
+                        wLog("Target mic '\(self.settings.micDeviceName ?? targetUID)' disconnected during recording — stopping session")
+                        self.stopRecordingSession()
                     }
                 }
             } else {
@@ -312,6 +369,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func onSystemSleep() {
         guard isRecording else { return }
         wLog("System going to sleep — aborting recording")
+        abortRecording(reason: "system sleep")
+    }
+
+    /// User clicked the hover-revealed ✕ on the pill. Mirrors the sleep path:
+    /// discard packets, cancel the provider, hide the pill. No-op if no
+    /// recording is active so a stray hover-click race can't crash anything.
+    private func cancelActiveRecording() {
+        guard isRecording else { return }
+        wLog("User cancelled recording via pill ✕")
+        // Only record if an attempt was actually in flight. Cancelling
+        // during Listening (no Processing yet) wouldn't have a meaningful
+        // duration to surface.
+        if attemptStartedAt != nil {
+            recordAttempt(outcome: .cancelled, vendor: nil, preview: nil)
+        }
+        abortRecording(reason: "user cancel")
+    }
+
+    /// Shared teardown for non-graceful recording exits (sleep, user cancel).
+    /// Drops in-memory provider state but preserves any on-disk PCM snapshot
+    /// from a prior `attemptTranscription()` so the next launch's recovery
+    /// path can offer the user to retry rather than silently losing audio.
+    private func abortRecording(reason: String) {
         recordingState = .idle
         lastPressTime = nil
 
@@ -325,6 +405,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         audioRecorder.onLevelUpdate = nil
         audioRecorder.onPacket = nil
         _ = audioRecorder.stop() // discard packets
+        // Close any in-flight incremental file but KEEP it on disk. Recovery
+        // on the next launch can offer the user to retry; the 24h sweep
+        // handles ones they explicitly dismiss or ignore.
+        pendingAudio?.finishWriting()
         dictationProvider.cancel()
         clearPendingTranscription()
 
@@ -353,13 +437,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 wLog("Recording locked — hands-free mode")
                 recordingOverlay.showLocked()
             } else {
-                // Slow second press: treat as stop
-                stopRecordingSession()
+                // Slow second press: treat as stop with trailing tail capture.
+                stopRecordingSessionWithTrailingBuffer()
             }
 
         case .recording:
-            // Third press: stop hands-free recording
-            stopRecordingSession()
+            // Third press: stop hands-free recording with trailing tail
+            // capture so the final syllable doesn't clip.
+            stopRecordingSessionWithTrailingBuffer()
+        }
+    }
+
+    /// Schedule a `stopRecordingSession()` after `toggleStopTrailingBuffer`
+    /// has elapsed. Audio capture continues during the buffer; the recorder
+    /// stop call happens on the timer's tick. If the user re-presses inside
+    /// the window we cancel the pending stop and treat it as the normal
+    /// state machine input.
+    private func stopRecordingSessionWithTrailingBuffer() {
+        tapDelayTimer?.invalidate()
+        tapDelayTimer = Timer.scheduledTimer(withTimeInterval: AppDelegate.toggleStopTrailingBuffer, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            // Only fire if the user hasn't already moved us out of an active
+            // recording state (e.g. clicked the pill ✕ during the 0.25s
+            // window — abortRecording already torn things down).
+            guard self.recordingState == .recording || self.recordingState == .listening else { return }
+            self.stopRecordingSession()
         }
     }
 
@@ -381,6 +483,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         recordingFinalSec = Constants.finalWarningSeconds
         soundManager.playStart()
 
+        // Open the incremental disk file BEFORE wiring callbacks so the very
+        // first packet has somewhere to land. If the file can't be created
+        // (disk full, perms broken) we still proceed — the in-memory packets
+        // path remains the source of truth for transcription.
+        let filename = "recording-\(logDateFormatter.string(from: Date())).pcm"
+        let url = Self.pendingAudioDir.appendingPathComponent(filename)
+        pendingAudio = RecordingArtifact(creatingAt: url)
+        if pendingAudio == nil {
+            wLog("Failed to create incremental audio file at \(url.lastPathComponent) — proceeding without disk snapshot")
+        }
+
         // Wire the audio capture callbacks BEFORE audioRecorder.start() so no
         // packets/level updates emitted in the engine's startup tick are lost
         // (they fire on the capture thread; a nil callback at that instant
@@ -390,7 +503,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         dictationProvider.start()
         audioRecorder.onPacket = { [weak self] packet in
-            self?.dictationProvider.feed(packet: packet)
+            guard let self = self else { return }
+            self.dictationProvider.feed(packet: packet)
+            // RecordingArtifact owns the I/O queue + handle. Append is a
+            // single dispatch_async; on disk error it tears down its own
+            // handle so subsequent writes silently no-op.
+            self.pendingAudio?.append(packet)
         }
         audioRecorder.onLevelUpdate = { [weak self] level in
             DispatchQueue.main.async {
@@ -537,11 +655,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         audioRecorder.onLevelUpdate = nil
         audioRecorder.onPacket = nil
         let packets = audioRecorder.stop()
+        // Drain any in-flight incremental writes, then close the handle. The
+        // serial sync inside finishWriting() guarantees every queued packet
+        // has landed on disk before we hand the artifact to the transcription
+        // pipeline.
+        pendingAudio?.finishWriting()
         soundManager.playStop()
         statusBarController.setRecording(false)
 
         guard packets.count >= 5 else {
             dictationProvider.cancel()
+            // Discard the tiny file — no value in keeping <200ms of audio.
+            pendingAudio?.delete()
+            pendingAudio = nil
             if packets.count == 0 && elapsedRecordingTime > 1.0 {
                 wLog("Recording captured 0 packets over \(String(format: "%.1f", elapsedRecordingTime))s — likely mic disconnected")
                 recordingOverlay.showError(message: "Mic not responding")
@@ -557,12 +683,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         pendingPackets = packets
         currentRetryAttempt = 0
+        // Reset telemetry accumulators for this fresh attempt. Re-entry from
+        // auto-retry / fallback-chain advance keeps them sticky so the final
+        // record reflects the whole attempt, not just the last hop.
+        attemptStartedAt = Date()
+        attemptWatchdogFired = false
         scheduleProcessingTimeout()
-
-        // Save audio to disk in background — survives crashes and failed retries
-        let packetsToSave = packets
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            self?.pendingAudioFileURL = self?.saveAudioToDisk(packetsToSave)
+        if pendingAudio == nil {
+            wLog("Recording finished without an on-disk snapshot — no crash recovery for this attempt")
         }
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self, count = packets.count] in
@@ -614,12 +742,64 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        dictationProvider.stop(context: context) { [weak self] result in
+        // Per-provider watchdog + idempotent completion. The watchdog fires
+        // after the scaled timeout and synthesizes a `.timeout` if the
+        // provider never calls back — covers crashed/hung WS handshakes,
+        // misbehaving SDK threads, anything that would otherwise park the
+        // pill in Processing forever. Both paths funnel through the same
+        // SafeCompletion gate so chain advancement only runs once.
+        let gate = SafeCompletion<Result<TranscriptResult, TranscriptionError>> { [weak self] result in
             guard let self = self else { return }
+            self.handleTranscriptionResult(result, appInfo: appInfo)
+        }
 
-            switch result {
+        let recordingSeconds = Double(packets.count) * Double(Constants.chunkDurationMs) / 1000.0
+        let watchdogSeconds = min(
+            Self.perProviderWatchdogCap,
+            Self.perProviderWatchdogBase + recordingSeconds * Self.perProviderWatchdogPerSecond
+        )
+        let watchdog = DispatchWorkItem { [weak self] in
+            wLog("Provider watchdog fired after \(Int(watchdogSeconds))s — forcing fallback")
+            self?.attemptWatchdogFired = true
+            self?.dictationProvider.cancel()
+            gate.fire(.failure(.timeout))
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + watchdogSeconds, execute: watchdog)
+
+        dictationProvider.stop(context: context) { result in
+            watchdog.cancel()
+            gate.fire(result)
+        }
+    }
+
+    /// Body of the transcription completion handler, extracted so both the
+    /// provider's natural completion and the per-provider watchdog can share
+    /// the same code path via `safeComplete`. `appInfo` is the snapshot taken
+    /// at recording start; everything else reads from `self`.
+    private func handleTranscriptionResult(
+        _ result: Result<TranscriptResult, TranscriptionError>,
+        appInfo: [String: String]
+    ) {
+        switch result {
             case .success(let transcriptResult):
                 self.isTranscribing = false
+                // Record telemetry BEFORE clearPendingTranscription nukes
+                // currentChainIndex / attemptStartedAt.
+                let preview = (transcriptResult.formattedText ?? transcriptResult.asrText)
+                    .map { String($0.prefix(60)) }
+                let finalVendor = self.activeVendorForChainStep().displayName
+                self.recordAttempt(
+                    outcome: preview?.isEmpty == false ? .success : .failure,
+                    vendor: finalVendor,
+                    preview: preview
+                )
+                // Capture the artifact BEFORE clearing state so we can
+                // delete the file only after the text actually lands in the
+                // focused app. Previously we cleared (and deleted the file)
+                // before inject ran — if inject failed, crashed, or
+                // returned thin results, the user lost both the transcript
+                // and the source audio with no way to retry.
+                let artifactToRetire = self.pendingAudio
                 self.clearPendingTranscription()
                 self.resumeMusicInBackground()
 
@@ -639,11 +819,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         let activeInstructions = self.settings.activePolishInstructions
                         if self.session.canUsePolish(activeVendor: self.activeVendor) && self.settings.autoPolish && self.settings.polishEnabled
                             && !activeInstructions.isEmpty {
-                            // Auto-polish will inject the final text — skip raw injection
-                            // Keep overlay in Processing state while polish runs
+                            // Auto-polish runs async and itself can hang or fail.
+                            // Keep the source audio on disk for ~60s as a safety
+                            // net — if polish silently never injects, the user
+                            // still has the .pcm to recover on next launch.
+                            // The opportunistic sweep cleans it up after 24h.
+                            artifactToRetire?.deleteAfter(60)
                         } else {
                             self.recordingOverlay.showInserting()
-                            self.textInjector.inject(text: displayText) { _ in
+                            self.textInjector.inject(text: displayText) { pasteSucceeded in
+                                if pasteSucceeded {
+                                    // Transcript landed in the focused app —
+                                    // user has it. Safe to drop the audio.
+                                    artifactToRetire?.delete()
+                                } else {
+                                    // Paste failed (focused field gone, clipboard
+                                    // blocked, accessibility revoked). The
+                                    // transcript wasn't delivered — keep the
+                                    // audio file so recovery / Save can offer
+                                    // the user another shot. Sweep handles
+                                    // eventual cleanup after 24h.
+                                    wLog("Inject reported failure — keeping audio file for recovery: \(artifactToRetire?.url.lastPathComponent ?? "(nil)")")
+                                }
                                 DispatchQueue.main.async { self.recordingOverlay.hide() }
                             }
                         }
@@ -667,6 +864,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         }
                     } else {
                         wLog("Empty transcription result")
+                        // Empty result almost always means the mic captured
+                        // silence / room tone / unintelligible speech — the
+                        // recovery flow can't usefully retry it (the same
+                        // providers will return the same empty result), and
+                        // emptyResult.shouldFallback is false so no chain
+                        // advance happens. Drop the file now; the 24h sweep
+                        // would only delay the same outcome.
+                        artifactToRetire?.delete()
                         self.recordingOverlay.showError(message: TranscriptionError.emptyResult.userMessage)
                     }
                 }
@@ -713,6 +918,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 } else if error.isRetryable {
                     // Auto-retries exhausted — show persistent retry UI
                     wLog("Transcription failed after \(Self.maxAutoRetries) retries: \(error.userMessage)")
+                    self.recordAttempt(
+                        outcome: .failure,
+                        vendor: self.activeVendorForChainStep().displayName,
+                        preview: error.userMessage
+                    )
                     self.resumeMusicInBackground()
 
                     DispatchQueue.main.async {
@@ -726,6 +936,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     // Non-retryable error — still show persistent retry UI so audio is never lost
                     wLog("Transcription failed (non-retryable): \(error.userMessage)")
+                    self.recordAttempt(
+                        outcome: .failure,
+                        vendor: self.activeVendorForChainStep().displayName,
+                        preview: error.userMessage
+                    )
                     self.resumeMusicInBackground()
 
                     DispatchQueue.main.async {
@@ -737,7 +952,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         )
                     }
                 }
-            }
         }
     }
 
@@ -780,6 +994,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func dismissRetry() {
+        // User explicitly chose Dismiss after seeing the Save button — the
+        // audio is no longer wanted. Drop the .pcm now so it doesn't linger
+        // until the 24h sweep.
+        pendingAudio?.delete()
         clearPendingTranscription()
         recordingOverlay.hide()
     }
@@ -794,8 +1012,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// dictation completes so a long-running install (no relaunch in weeks)
     /// doesn't accumulate 24h+ of failed-recovery .pcm files.
     /// `activePath` snapshots the currently-in-use file path on the main
-    /// thread so the background sweep doesn't read `pendingAudioFileURL`
-    /// concurrently with the next dictation writing to it.
+    /// thread so the background sweep doesn't read `pendingAudio` concurrently
+    /// with the next dictation writing to it.
     private func sweepStalePendingAudio(activePath: String?) {
         let dir = Self.pendingAudioDir
         guard let files = try? FileManager.default.contentsOfDirectory(
@@ -811,16 +1029,56 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Single source of truth for "which vendor sits at chain step N." Step 0
+    /// is the primary vendor (`settings.activeVendor`); step >0 reads from
+    /// `settings.fallbackChain[index - 1]`. Used by telemetry recording,
+    /// chain advancement, and live provider rebuild.
+    private func vendorAtChainStep(_ index: Int) -> DictationVendor {
+        if index == 0 {
+            return DictationVendor(rawValue: settings.activeVendor) ?? .wisprFlow
+        }
+        return DictationVendor(rawValue: settings.fallbackChain[index - 1].vendor) ?? .wisprFlow
+    }
+
+    /// Convenience: the vendor that owns the *current* chain step. Wraps
+    /// `vendorAtChainStep(currentChainIndex)` so callers don't have to
+    /// thread `currentChainIndex` explicitly.
+    private func activeVendorForChainStep() -> DictationVendor {
+        return vendorAtChainStep(currentChainIndex)
+    }
+
+    /// Append an attempt record to the telemetry ring buffer. Snapshots
+    /// `currentChainIndex` / `attemptWatchdogFired` / `attemptStartedAt`
+    /// before the caller clears them via `clearPendingTranscription()`.
+    private func recordAttempt(outcome: AttemptRecord.Outcome, vendor: String?, preview: String?) {
+        let started = attemptStartedAt ?? Date()
+        let elapsed = Date().timeIntervalSince(started)
+        let record = AttemptRecord(
+            id: UUID(),
+            timestamp: Date(),
+            finalVendor: outcome == .success ? vendor : nil,
+            fallbackHops: currentChainIndex,
+            watchdogFired: attemptWatchdogFired,
+            elapsedSeconds: elapsed,
+            outcome: outcome,
+            preview: preview
+        )
+        telemetryStore.record(record)
+        attemptStartedAt = nil
+        attemptWatchdogFired = false
+    }
+
+    /// Reset transcription state. Does NOT delete the on-disk audio file —
+    /// each caller decides explicitly by calling `pendingAudio?.delete()` /
+    /// `.deleteAfter(_:)` (or capturing the artifact reference for deferred
+    /// deletion). Splitting the file-lifecycle decision from the state-reset
+    /// removes a class of "comment says keep, code deletes" bugs where a
+    /// default-true bool quietly threw away audio the caller meant to keep.
     private func clearPendingTranscription() {
         processingTimeoutTimer?.invalidate()
         processingTimeoutTimer = nil
-        // Delete saved audio file on successful transcription
-        if let url = pendingAudioFileURL {
-            try? FileManager.default.removeItem(at: url)
-            wLog("Deleted saved audio: \(url.lastPathComponent)")
-        }
         pendingPackets = nil
-        pendingAudioFileURL = nil
+        pendingAudio = nil
         pendingAppInfo = nil
         pendingOcrContext = nil
         pendingAxContext = nil
@@ -840,7 +1098,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Opportunistic sweep — snapshot the active path on main, then run
         // the directory scan on a background queue so the I/O doesn't block
         // the UI.
-        let activePath = pendingAudioFileURL?.path
+        let activePath = pendingAudio?.url.path
         DispatchQueue.global(qos: .background).async { [weak self] in
             self?.sweepStalePendingAudio(activePath: activePath)
         }
@@ -849,7 +1107,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Save audio as a playable WAV file to ~/Downloads.
     private func saveAudioToDownloads() {
         guard let packets = pendingPackets, !packets.isEmpty else { return }
-        let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
+        let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
         let timestamp = logDateFormatter.string(from: Date())
             .replacingOccurrences(of: ":", with: "-")
         let url = downloadsDir.appendingPathComponent("wispr-recording-\(timestamp).wav")
@@ -910,9 +1169,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return d1 > d2
         }).first else { return }
 
+        let recoveredFileCreated = (try? mostRecent.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+        let fileAge = Date().timeIntervalSince(recoveredFileCreated)
         // Only recover files from the last 24 hours
-        if let created = (try? mostRecent.resourceValues(forKeys: [.creationDateKey]).creationDate),
-           Date().timeIntervalSince(created) > 86400 {
+        if fileAge > 86400 {
             // Too old — clean up all pending files
             for file in pcmFiles { try? FileManager.default.removeItem(at: file) }
             return
@@ -925,17 +1185,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         wLog("Recovered \(packets.count) packets from previous session: \(mostRecent.lastPathComponent)")
         pendingPackets = packets
-        pendingAudioFileURL = mostRecent
+        pendingAudio = RecordingArtifact(capturedAt: mostRecent)
         pendingAppInfo = ["name": "Unknown", "bundle_id": "", "type": "other", "url": ""]
         currentRetryAttempt = 0
+        // Recovery always starts from the primary vendor. Without this, if the
+        // previous session crashed mid-fallback (chainIndex=2), the recovered
+        // audio would be replayed into the same broken fallback step — not
+        // what the user wants if they've since fixed their primary auth.
+        currentChainIndex = 0
 
-        DispatchQueue.main.async {
-            self.recordingOverlay.showRetryableError(
-                message: "Recovered unsent recording",
-                onRetry: { [weak self] in self?.retryTranscription() },
-                onSave: { [weak self] in self?.saveAudioToDownloads() },
-                onDismiss: { [weak self] in self?.dismissRetry() }
-            )
+        // Auto-retry fresh files (< 90s old) silently. If the user just
+        // crashed mid-dictation 30 seconds ago, parking a retry pill in
+        // front of them is friction — try the transcription first; only
+        // surface the retry UI if the auto-retry itself fails. Older files
+        // (probably from a session they've forgotten about) keep the
+        // existing explicit-prompt behavior so they don't get a surprise
+        // transcript dumped into whatever app they're now using.
+        if fileAge < 90 {
+            wLog("Recovered file is \(Int(fileAge))s old — auto-retrying transcription silently")
+            DispatchQueue.main.async {
+                self.retryTranscription()
+            }
+        } else {
+            DispatchQueue.main.async {
+                self.recordingOverlay.showRetryableError(
+                    message: "Recovered unsent recording",
+                    onRetry: { [weak self] in self?.retryTranscription() },
+                    onSave: { [weak self] in self?.saveAudioToDownloads() },
+                    onDismiss: { [weak self] in self?.dismissRetry() }
+                )
+            }
         }
 
         // Clean up any other old files
@@ -1059,31 +1338,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Auto-Polish
 
+    /// Hard ceiling on auto-polish. If the polish call hangs (network drop,
+    /// model rate-limited, etc.) we fall back to injecting the original
+    /// transcript rather than parking the pill in Processing forever.
+    private static let autoPolishWatchdogSeconds: TimeInterval = 30
+
     private func autoPolishText(_ text: String) {
         let activeInstructions = settings.activePolishInstructions
         guard !activeInstructions.isEmpty else { return }
 
+        // SafeCompletion gate: exactly one terminal action (inject polished
+        // OR inject original) regardless of whether polish completed normally
+        // or the watchdog fired.
+        let gate = SafeCompletion<(text: String, isPolished: Bool)> { [weak self] outcome in
+            guard let self = self else { return }
+            DispatchQueue.main.async {
+                self.recordingOverlay.showInserting()
+                self.textInjector.inject(text: outcome.text) { _ in
+                    DispatchQueue.main.async { self.recordingOverlay.hide() }
+                }
+                if outcome.isPolished {
+                    wLog("Auto-polish complete: \(outcome.text.count) chars")
+                }
+            }
+        }
+
+        let watchdog = DispatchWorkItem {
+            wLog("Auto-polish watchdog fired — injecting original text")
+            gate.fire((text: text, isPolished: false))
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + Self.autoPolishWatchdogSeconds, execute: watchdog)
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.polishService.polish(text: text, instructions: activeInstructions) { [weak self] result in
+                watchdog.cancel()
                 guard let self = self else { return }
                 switch result {
                 case .success(let polishResult):
-                    DispatchQueue.main.async {
-                        self.recordingOverlay.showInserting()
-                        self.textInjector.inject(text: polishResult.polishedText) { _ in
-                            DispatchQueue.main.async { self.recordingOverlay.hide() }
-                        }
-                        wLog("Auto-polish complete: \(polishResult.polishedText.count) chars")
-                    }
+                    gate.fire((text: polishResult.polishedText, isPolished: true))
                     self.polishStore.saveResult(polishResult)
                 case .failure(let error):
                     wLog("Auto-polish failed: \(error.userMessage) — injecting original text")
-                    DispatchQueue.main.async {
-                        self.recordingOverlay.showInserting()
-                        self.textInjector.inject(text: text) { _ in
-                            DispatchQueue.main.async { self.recordingOverlay.hide() }
-                        }
-                    }
+                    gate.fire((text: text, isPolished: false))
                 }
             }
         }
@@ -1176,6 +1472,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return OpenRouterProvider(settings: settings, modelOverride: openRouterModelOverride)
         case .claudeVoice:
             return ClaudeVoiceProvider(settings: settings)
+        case .deepgram:
+            return DeepgramProvider(settings: settings)
         }
     }
 
@@ -1190,21 +1488,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Build the provider for `currentChainIndex`. Step 0 is the primary
-    /// vendor; later steps come from `settings.fallbackChain`.
+    /// vendor; later steps come from `settings.fallbackChain` with their
+    /// per-step `openRouterModel` override.
     private func providerForCurrentChainStep() -> DictationProvider {
+        let vendor = vendorAtChainStep(currentChainIndex)
         if currentChainIndex == 0 {
-            return Self.makeProvider(vendor: activeVendor, session: session, settings: settings)
+            return Self.makeProvider(vendor: vendor, session: session, settings: settings)
         }
-        let stepIndex = currentChainIndex - 1
-        let step = settings.fallbackChain[stepIndex]
-        let vendor = DictationVendor(rawValue: step.vendor) ?? .wisprFlow
-        let provider = Self.makeProvider(
+        return Self.makeProvider(
             vendor: vendor,
             session: session,
             settings: settings,
-            openRouterModelOverride: step.openRouterModel
+            openRouterModelOverride: settings.fallbackChain[currentChainIndex - 1].openRouterModel
         )
-        return provider
     }
 
     /// True when there's at least one more fallback step to try.
@@ -1216,8 +1512,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// vendor we moved to, for logging.
     private func advanceChainStep() -> DictationVendor {
         currentChainIndex += 1
-        let step = settings.fallbackChain[currentChainIndex - 1]
-        let vendor = DictationVendor(rawValue: step.vendor) ?? .wisprFlow
+        let vendor = vendorAtChainStep(currentChainIndex)
         dictationProvider.cancel()
         dictationProvider = providerForCurrentChainStep()
         dictationProvider.dictionaryStore = dictionaryStore
@@ -1243,7 +1538,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeyListener.stop()
         wisprFlowSessionWatcher?.cancel()
         wisprFlowSessionWatcher = nil
-        logFile?.closeFile()
+        // If the user quits mid-recording, drain the incremental-write queue
+        // and close the file handle so the partial .pcm on disk is valid and
+        // recoverable on next launch. Don't delete it — recovery scans for
+        // exactly this case.
+        pendingAudio?.finishWriting()
+        // Drain any pending log writes on the serial log queue BEFORE closing
+        // the file. Otherwise a wLog call in-flight from a background thread
+        // (audio, WS receive, settings observer) lands on a closed FileHandle
+        // and abort()s the process during shutdown — which was the root cause
+        // of the crash users saw on Cmd+Q after switching providers.
+        logQueue.sync {
+            try? logFile?.close()
+            logFile = nil
+        }
         audioRecorder.cleanup()
         historyStore.close()
         dbManager.close()

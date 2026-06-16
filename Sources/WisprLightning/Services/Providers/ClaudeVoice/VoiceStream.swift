@@ -170,8 +170,13 @@ final class VoiceStream: NSObject, URLSessionWebSocketDelegate {
                     return
                 }
                 self.pendingFinalization = cont
-                DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
-                    self.queue.async { self.resolveFinalization() }
+                // Weak capture: without it the 2s closure pins the VoiceStream
+                // alive across cancellation. Strong capture also can't crash,
+                // but it delays delegate teardown and (more subtly) keeps the
+                // delegate's ClaudeVoiceProvider alive for an extra 2s after
+                // the user has moved on.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                    self?.queue.async { self?.resolveFinalization() }
                 }
             }
         }

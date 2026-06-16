@@ -23,6 +23,7 @@ enum SecretsStore {
         /// the `claude` CLI's item); subsequent reads come from this file
         /// instead of re-prompting on every signed rebuild.
         case claudeCodeTokenMirror
+        case deepgramAPIKey
     }
 
     private static let lock = NSLock()

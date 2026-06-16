@@ -15,10 +15,44 @@ class RecordingOverlay {
     private var onRetryAction: (() -> Void)?
     private var onSaveAction: (() -> Void)?
     private var onDismissAction: (() -> Void)?
+    /// Wired once by AppDelegate. Invoked when the user clicks the hover-
+    /// revealed ✕ during Listening or Recording — aborts capture, discards
+    /// audio, dismisses the pill.
+    var onCancelAction: (() -> Void)?
+    private var cancelButton: NSButton?
+    /// True while the pill is in a state where the user-cancel ✕ should
+    /// appear on hover (Listening or Recording). False otherwise so hover
+    /// during Processing/Error/Retrying does nothing.
+    private var isRecordingMode = false
     private var currentPanelWidth: CGFloat = 120
-    private var levelRing: CALayer?
-    private var levelRingDisplayedLevel: Float = 0
+    /// Container view holding the VU bars. Sits in the stack between the dot
+    /// and the label. Hidden in non-recording states (Processing, Error,
+    /// Retrying) where the dot is also hidden.
+    private var levelBarsView: NSView?
+    private var levelBars: [CALayer] = []
+    /// Rolling buffer of recent audio levels — newest on the right. Index N
+    /// drives bar N's height after smoothing.
+    private var levelBuffer: [Float] = Array(repeating: 0, count: 5)
+    /// Per-bar smoothed level so each bar eases toward its buffer value
+    /// instead of snapping at update rate (~25 Hz). Same length as `levelBars`.
+    private var displayedBarLevels: [Float] = Array(repeating: 0, count: 5)
     private var levelLastUpdate: Date?
+
+    private static let vuBarCount = 18
+    /// Pixel dimensions of the VU strip. Tuned so the band reads at a glance
+    /// without ballooning the pill back to its old debug-tool proportions.
+    private static let vuBarWidth: CGFloat = 3
+    private static let vuBarSpacing: CGFloat = 2
+    private static let vuBarMinHeight: CGFloat = 3
+    private static let vuBarMaxHeight: CGFloat = 20
+    private static let vuStripHeight: CGFloat = 22
+    private static let pillHeight: CGFloat = 36
+    /// Single recording-state pill width. The ✕ cancel button is an overlay
+    /// (not in the stack) so the band stays centered whether the cancel is
+    /// visible or not — no layout jitter on hover.
+    private static let recordingPillWidth: CGFloat = 130
+    private static let cancelButtonSize: CGFloat = 20
+    private static let cancelButtonRightMargin: CGFloat = 8
 
     /// Call at app launch to build the panel before the first keypress.
     func prewarm() {
@@ -40,16 +74,25 @@ class RecordingOverlay {
             onSaveAction = nil
             onDismissAction = nil
             effectView?.layer?.backgroundColor = nil
-            dotView?.isHidden = false
+            // Listening / Recording states show ONLY the big VU band — no
+            // dot, no "Listening" text. The band is the indicator: bars
+            // moving = mic alive, bars jumping = voice detected.
+            dotView?.isHidden = true
+            mainLabel?.isHidden = true
+            levelBarsView?.isHidden = false
+            cancelButton?.alphaValue = 0   // hover-reveal
             spinner?.stopAnimation(nil)
             spinner?.isHidden = true
-            dotView?.layer?.backgroundColor = Theme.Colors.error.cgColor
-            mainLabel?.stringValue = "Listening"
+            isRecordingMode = true
+            // Reset to the resting (red) bar color in case the prior session
+            // ended in showLocked() with green bars.
+            for bar in levelBars {
+                bar.backgroundColor = Theme.Colors.error.cgColor
+            }
             currentPanelWidth = 0  // force resize to reposition after any state
-            resetLevelRing()
-            resizePanel(width: 120)
+            resetLevelBars()
+            resizePanel(width: Self.recordingPillWidth)
             panel?.orderFront(nil)
-            startPulsing()
             return
         }
         buildPanel()
@@ -60,7 +103,7 @@ class RecordingOverlay {
 
     private func buildPanel() {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 120, height: 36),
+            contentRect: NSRect(x: 0, y: 0, width: 120, height: Self.pillHeight),
             styleMask: [.nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -73,12 +116,14 @@ class RecordingOverlay {
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary]
         panel.animationBehavior = .utilityWindow
 
-        let effectView = NSVisualEffectView()
+        let effectView = HoverEffectView()
         effectView.material = .popover
         effectView.state = .active
         effectView.wantsLayer = true
-        effectView.layer?.cornerRadius = 18
+        effectView.layer?.cornerRadius = Self.pillHeight / 2
         effectView.layer?.masksToBounds = true
+        effectView.onMouseEntered = { [weak self] in self?.handleHoverChanged(hovering: true) }
+        effectView.onMouseExited = { [weak self] in self?.handleHoverChanged(hovering: false) }
 
         panel.contentView = effectView
         self.effectView = effectView
@@ -87,6 +132,11 @@ class RecordingOverlay {
         stack.orientation = .horizontal
         stack.spacing = Theme.Spacing.medium
         stack.edgeInsets = NSEdgeInsets(top: 0, left: Theme.Spacing.large, bottom: 0, right: Theme.Spacing.large)
+        // Force single-item centering even when only the strip is visible —
+        // the default gravity behavior was leaving the band left-aligned with
+        // empty space on the right.
+        stack.distribution = .equalCentering
+        stack.alignment = .centerY
 
         let dot = NSView()
         dot.wantsLayer = true
@@ -95,16 +145,33 @@ class RecordingOverlay {
         dot.setSize(width: 10, height: 10)
         self.dotView = dot
 
-        // Ring layer behind the dot — expands with audio level. Hidden until levels arrive.
-        let ring = CALayer()
-        ring.frame = CGRect(x: -3, y: -3, width: 16, height: 16)
-        ring.cornerRadius = 8
-        ring.borderWidth = 1.5
-        ring.borderColor = Theme.Colors.error.withAlphaComponent(0.5).cgColor
-        ring.backgroundColor = NSColor.clear.cgColor
-        ring.opacity = 0
-        dot.layer?.insertSublayer(ring, at: 0)
-        self.levelRing = ring
+        // VU strip — 5 thin bars whose heights map to a rolling buffer of
+        // recent RMS levels (oldest on the left, newest on the right). Always
+        // shows at least the min-height baseline so the user gets visual
+        // confirmation the audio path is alive even before they speak.
+        let stripWidth = CGFloat(Self.vuBarCount) * Self.vuBarWidth
+            + CGFloat(Self.vuBarCount - 1) * Self.vuBarSpacing
+        let strip = NSView()
+        strip.wantsLayer = true
+        strip.setSize(width: stripWidth, height: Self.vuStripHeight)
+        for i in 0..<Self.vuBarCount {
+            let bar = CALayer()
+            let x = CGFloat(i) * (Self.vuBarWidth + Self.vuBarSpacing)
+            // anchor at bottom-center so scaling on Y grows the bar upward
+            // from the baseline rather than expanding in both directions.
+            bar.anchorPoint = CGPoint(x: 0.5, y: 0)
+            bar.frame = CGRect(
+                x: x,
+                y: 0,
+                width: Self.vuBarWidth,
+                height: Self.vuBarMinHeight
+            )
+            bar.cornerRadius = Self.vuBarWidth / 2
+            bar.backgroundColor = Theme.Colors.error.cgColor
+            strip.layer?.addSublayer(bar)
+            levelBars.append(bar)
+        }
+        self.levelBarsView = strip
 
         let spin = NSProgressIndicator()
         spin.style = .spinning
@@ -146,7 +213,35 @@ class RecordingOverlay {
         dismiss.isHidden = true
         self.dismissButton = dismiss
 
+        // Hover-revealed cancel button for recording states. Separate from
+        // dismissButton (which handles retryable-error dismissal) and NOT in
+        // the stack — it overlays the trailing edge of the pill so showing/
+        // hiding it doesn't shift the centered VU band. Uses the standard
+        // macOS dismiss glyph (xmark.circle.fill) so it reads as a button
+        // rather than a stray character.
+        let cancel = CancelButton()
+        cancel.image = Self.makeCancelImage()
+        cancel.target = self
+        cancel.action = #selector(cancelButtonClicked)
+        cancel.isBordered = false
+        cancel.bezelStyle = .inline
+        cancel.imageScaling = NSImageScaling.scaleProportionallyDown
+        cancel.imagePosition = .imageOnly
+        cancel.title = ""
+        cancel.alphaValue = 0
+        cancel.toolTip = "Cancel recording"
+        cancel.translatesAutoresizingMaskIntoConstraints = true
+        cancel.autoresizingMask = NSView.AutoresizingMask.minXMargin   // stays trailing on width change
+        cancel.frame = NSRect(
+            x: Self.recordingPillWidth - Self.cancelButtonSize - Self.cancelButtonRightMargin,
+            y: (Self.pillHeight - Self.cancelButtonSize) / 2,
+            width: Self.cancelButtonSize,
+            height: Self.cancelButtonSize
+        )
+        self.cancelButton = cancel
+
         stack.addArrangedSubview(dot)
+        stack.addArrangedSubview(strip)
         stack.addArrangedSubview(spin)
         stack.addArrangedSubview(label)
         stack.addArrangedSubview(tLabel)
@@ -156,6 +251,8 @@ class RecordingOverlay {
 
         effectView.addSubview(stack)
         stack.pinToSuperview()
+        // Add cancel after the stack so its z-order puts it above the band.
+        effectView.addSubview(cancel)
 
         self.panel = panel
     }
@@ -164,14 +261,26 @@ class RecordingOverlay {
         errorDismissTimer?.invalidate()
         errorDismissTimer = nil
         stopPulsing()
-        resetLevelRing()
+        resetLevelBars()
+        isRecordingMode = false
+        levelBarsView?.isHidden = true
+        // Restore the resting (Listening/red) bar color so the next recording
+        // doesn't start with leftover green from a locked session.
+        for bar in levelBars {
+            bar.backgroundColor = Theme.Colors.error.cgColor
+        }
         spinner?.stopAnimation(nil)
         spinner?.isHidden = true
+        // Restore dot+label visibility for next non-recording state (Processing
+        // etc); show() and showLocked() re-hide them before the panel becomes
+        // visible again.
         dotView?.isHidden = false
+        mainLabel?.isHidden = false
         dotView?.layer?.backgroundColor = Theme.Colors.error.cgColor
         retryButton?.isHidden = true
         saveButton?.isHidden = true
         dismissButton?.isHidden = true
+        cancelButton?.alphaValue = 0
         onRetryAction = nil
         onSaveAction = nil
         onDismissAction = nil
@@ -181,9 +290,17 @@ class RecordingOverlay {
     func showLocked() {
         warningState = 0
         effectView?.layer?.backgroundColor = nil
-        dotView?.layer?.backgroundColor = NSColor.systemGreen.cgColor
-        mainLabel?.stringValue = "Recording"
-        resizePanel(width: 120)
+        // Hide dot and label — the green bars are now the sole indicator
+        // that we're in locked/hands-free Recording.
+        dotView?.isHidden = true
+        mainLabel?.isHidden = true
+        levelBarsView?.isHidden = false
+        cancelButton?.alphaValue = 0   // hover-reveal
+        isRecordingMode = true
+        for bar in levelBars {
+            bar.backgroundColor = NSColor.systemGreen.cgColor
+        }
+        resizePanel(width: Self.recordingPillWidth)
         panel?.orderFront(nil)
     }
 
@@ -201,14 +318,18 @@ class RecordingOverlay {
 
     private func showSpinner(label: String, width: CGFloat) {
         stopPulsing()
-        resetLevelRing()
+        resetLevelBars()
         warningState = 0
         effectView?.layer?.backgroundColor = nil
         timeLabel?.isHidden = true
         dotView?.isHidden = true
+        levelBarsView?.isHidden = true
+        mainLabel?.isHidden = false
         retryButton?.isHidden = true
         saveButton?.isHidden = true
         dismissButton?.isHidden = true
+        cancelButton?.alphaValue = 0
+        isRecordingMode = false
         spinner?.isHidden = false
         spinner?.startAnimation(nil)
         mainLabel?.stringValue = label
@@ -269,8 +390,12 @@ class RecordingOverlay {
 
     func showRetrying(attempt: Int, maxAttempts: Int) {
         stopPulsing()
-        resetLevelRing()
+        resetLevelBars()
         dotView?.isHidden = true
+        levelBarsView?.isHidden = true
+        mainLabel?.isHidden = false
+        cancelButton?.alphaValue = 0
+        isRecordingMode = false
         retryButton?.isHidden = true
         saveButton?.isHidden = true
         dismissButton?.isHidden = true
@@ -297,12 +422,40 @@ class RecordingOverlay {
         onDismissAction?()
     }
 
+    @objc private func cancelButtonClicked() {
+        // Defensive: only fire when we're actually in a cancellable state.
+        // The button is hidden outside isRecordingMode, but a stray click
+        // race during state transition would otherwise call into a stale
+        // closure. AppDelegate.cancelActiveRecording is idempotent so this
+        // is belt-and-suspenders.
+        guard isRecordingMode else { return }
+        onCancelAction?()
+    }
+
+    /// Fade the cancel ✕ in/out when the mouse enters or exits the pill.
+    /// Uses alphaValue (not isHidden) so the button never affects layout —
+    /// the centered VU band stays put as the X appears and disappears.
+    private func handleHoverChanged(hovering: Bool) {
+        guard isRecordingMode else {
+            cancelButton?.alphaValue = 0
+            return
+        }
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.12
+            cancelButton?.animator().alphaValue = hovering ? 1 : 0
+        }
+    }
+
     private func configureErrorState(message: String, width: CGFloat) {
         stopPulsing()
-        resetLevelRing()
+        resetLevelBars()
         spinner?.stopAnimation(nil)
         spinner?.isHidden = true
         dotView?.isHidden = true
+        levelBarsView?.isHidden = true
+        mainLabel?.isHidden = false
+        cancelButton?.alphaValue = 0
+        isRecordingMode = false
         timeLabel?.isHidden = true
         mainLabel?.stringValue = message
         effectView?.layer?.backgroundColor = NSColor.systemRed.withAlphaComponent(0.3).cgColor
@@ -330,40 +483,59 @@ class RecordingOverlay {
         panel.setFrame(frame, display: true)
     }
 
-    /// Update the ring around the dot to reflect a 0.0–1.0 audio level.
-    /// While levels are flowing, suspend the opacity pulse so the two animations
-    /// don't fight. No-op when the dot is hidden (Processing/Error/Retrying).
+    /// Update the VU bars to reflect a 0.0–1.0 audio level. Shifts the rolling
+    /// buffer left, appends the new sample on the right, and redraws all bars
+    /// with per-bar smoothing so they ease between samples instead of snapping
+    /// at update rate (~25 Hz). No-op when the bars are hidden (Processing/
+    /// Error/Retrying).
     func updateAudioLevel(_ level: Float) {
-        guard let dot = dotView, !dot.isHidden, let ring = levelRing else { return }
+        guard let strip = levelBarsView, !strip.isHidden, !levelBars.isEmpty else { return }
 
-        // First level update after a quiet period: stop the opacity pulse.
+        // First level update after a quiet period: stop the opacity pulse so
+        // the dot's blink doesn't fight the bar animation.
         if levelLastUpdate == nil {
             stopPulsing()
         }
         levelLastUpdate = Date()
 
-        // Smooth toward the new level so the ring doesn't jitter at tap rate (~25 Hz).
+        // Shift buffer left, append new sample on the right. Apply a mild
+        // perceptual curve so quiet speech (RMS ~0.1) still nudges the bars
+        // visibly instead of staying near the baseline.
         let clamped = max(0, min(1, level))
-        let smoothed = levelRingDisplayedLevel * 0.6 + clamped * 0.4
-        levelRingDisplayedLevel = smoothed
-
-        // Map 0–1 to 1.0×–1.6× scale and 0.0–0.7 opacity.
-        let scale = 1.0 + CGFloat(smoothed) * 0.6
-        let opacity = Float(smoothed) * 0.7
+        let curved = sqrt(clamped)
+        for i in 0..<(levelBuffer.count - 1) {
+            levelBuffer[i] = levelBuffer[i + 1]
+        }
+        levelBuffer[levelBuffer.count - 1] = curved
 
         CATransaction.begin()
-        CATransaction.setAnimationDuration(0.05)
+        CATransaction.setAnimationDuration(0.06)
         CATransaction.setDisableActions(false)
-        ring.transform = CATransform3DMakeScale(scale, scale, 1)
-        ring.opacity = opacity
+        for (i, bar) in levelBars.enumerated() {
+            let target = levelBuffer[i]
+            let smoothed = displayedBarLevels[i] * 0.5 + target * 0.5
+            displayedBarLevels[i] = smoothed
+            let h = Self.vuBarMinHeight + CGFloat(smoothed)
+                * (Self.vuBarMaxHeight - Self.vuBarMinHeight)
+            var frame = bar.frame
+            frame.size.height = h
+            bar.frame = frame
+        }
         CATransaction.commit()
     }
 
-    private func resetLevelRing() {
-        levelRing?.removeAllAnimations()
-        levelRing?.opacity = 0
-        levelRing?.transform = CATransform3DIdentity
-        levelRingDisplayedLevel = 0
+    private func resetLevelBars() {
+        levelBuffer = Array(repeating: 0, count: Self.vuBarCount)
+        displayedBarLevels = Array(repeating: 0, count: Self.vuBarCount)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for bar in levelBars {
+            var frame = bar.frame
+            frame.size.height = Self.vuBarMinHeight
+            bar.frame = frame
+            bar.removeAllAnimations()
+        }
+        CATransaction.commit()
         levelLastUpdate = nil
     }
 
@@ -384,5 +556,84 @@ class RecordingOverlay {
     private func stopPulsing() {
         dotView?.layer?.removeAnimation(forKey: "pulse")
         dotView?.layer?.opacity = 1.0
+    }
+
+    /// Builds the SF Symbol image for the cancel button. Tinted with the
+    /// secondary label color so it reads as a UI control without competing
+    /// with the band for visual weight.
+    private static func makeCancelImage() -> NSImage? {
+        let config = NSImage.SymbolConfiguration(pointSize: cancelButtonSize, weight: .medium)
+        let img = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: "Cancel recording")?
+            .withSymbolConfiguration(config)
+        img?.isTemplate = true
+        return img
+    }
+}
+
+/// NSButton subclass that brightens its content on mouse-over and supplies a
+/// custom cursor. macOS doesn't give us hover styling for borderless buttons
+/// out of the box; tracking-area + contentTintColor gets us there with no
+/// custom drawing.
+private final class CancelButton: NSButton {
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .cursorUpdate],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+        contentTintColor = .secondaryLabelColor
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        contentTintColor = .labelColor
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        contentTintColor = .secondaryLabelColor
+    }
+}
+
+/// NSVisualEffectView subclass that forwards mouse-enter / mouse-exit events
+/// to callback closures. Used by the pill to reveal the cancel ✕ on hover
+/// without forcing RecordingOverlay to subclass NSView.
+private final class HoverEffectView: NSVisualEffectView {
+    var onMouseEntered: (() -> Void)?
+    var onMouseExited: (() -> Void)?
+    private var trackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let existing = trackingArea {
+            removeTrackingArea(existing)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onMouseEntered?()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onMouseExited?()
     }
 }

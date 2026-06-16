@@ -187,18 +187,13 @@ class WisprFlowProvider: DictationProvider {
     private func performTranscription(packets: [Data],
                                       context: DictationContext,
                                       completion: @escaping (Result<TranscriptResult, TranscriptionError>) -> Void) {
-        var completed = false
-        let completionLock = NSLock()
-        let safeComplete: (Result<TranscriptResult, TranscriptionError>) -> Void = { result in
-            completionLock.lock()
-            guard !completed else {
-                completionLock.unlock()
-                return
-            }
-            completed = true
-            completionLock.unlock()
+        let gate = SafeCompletion<Result<TranscriptResult, TranscriptionError>> { result in
             completion(result)
         }
+        // Alias so the existing `safeComplete(...)` call sites in this
+        // function don't need touching. (Inlining everywhere would be a
+        // mechanical churn; this preserves diff hygiene.)
+        let safeComplete = gate.fire
 
         let wsTask: URLSessionWebSocketTask
         prewarmLock.lock()
@@ -303,8 +298,28 @@ class WisprFlowProvider: DictationProvider {
             }
         }
 
+        // Auth timeout: without this, a hung server (upgrade succeeded but no
+        // auth response) parks the recording in Processing until URLSession's
+        // ~30s default resource timeout. That's user-visible as a stall with
+        // no fallback. 10s is well past normal handshake (~700ms) but short
+        // enough that the chain advances quickly when the backend is broken.
+        let authTimeout = DispatchWorkItem { [weak self] in
+            wLog("Wispr Flow: auth response timed out — falling back")
+            self?.stopPinging(wsTask)
+            wsTask.cancel(with: .goingAway, reason: nil)
+            safeComplete(.failure(.timeout))
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10.0, execute: authTimeout)
+
         wsTask.receive { [weak self] result in
-            guard let self = self else { return }
+            // Cancel the auth-timeout watchdog as soon as we get any response
+            // (success or failure). The safeComplete wrapper de-dupes if the
+            // timeout already fired.
+            authTimeout.cancel()
+            guard let self = self else {
+                safeComplete(.failure(.connectionFailed))
+                return
+            }
             switch result {
             case .success(let message):
                 if case .string(let text) = message,
@@ -391,9 +406,16 @@ class WisprFlowProvider: DictationProvider {
             return
         }
 
-        wsTask.send(.string(commitString)) { error in
+        wsTask.send(.string(commitString)) { [weak self] error in
             if let error = error {
                 NSLog("Wispr Lightning: WS commit send failed: %@", error.localizedDescription)
+                completion(.failure(.connectionFailed))
+                return
+            }
+            // If the provider was deallocated mid-send, the WS task and the
+            // completion handler are still alive — fail the in-flight result
+            // rather than crash dereferencing nil.
+            guard let self = self else {
                 completion(.failure(.connectionFailed))
                 return
             }
@@ -430,9 +452,16 @@ class WisprFlowProvider: DictationProvider {
         }
 
         wLogVerbose("WS sending chunk \(offset)..<\(end) of \(totalPackets) (\(appendString.count) bytes, final=\(isFinal))")
-        wsTask.send(.string(appendString)) { [self] error in
+        wsTask.send(.string(appendString)) { [weak self] error in
             if let error = error {
                 NSLog("Wispr Lightning: WS chunk send failed: %@", error.localizedDescription)
+                completion(.failure(.connectionFailed))
+                return
+            }
+            // Same guard as commit-send: provider may be gone if the user
+            // cancelled mid-upload. Fail the result cleanly instead of
+            // crashing on a strong self.
+            guard let self = self else {
                 completion(.failure(.connectionFailed))
                 return
             }
