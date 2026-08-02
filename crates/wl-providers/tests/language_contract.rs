@@ -117,7 +117,6 @@ fn every_code_the_crate_translates_still_exists_in_the_picker() {
         ("zhcn", "Simplified", "zh-Hans"),
         ("zh", "Traditional", "zh-Hant"),
         ("yue", "Cantonese", "zh-HK"),
-        ("hien", "Hinglish", "multi"),
     ];
 
     for (code, meaning, tag) in contract {
@@ -135,17 +134,43 @@ fn every_code_the_crate_translates_still_exists_in_the_picker() {
     }
 }
 
+/// `hien` ("Hinglish") is deliberately absent from the picker.
+///
+/// It never selected a Hindi-English mode: it translates to `multi`, the
+/// code-switching pseudo-language, which is exactly what Auto-detect sends. It
+/// was a third label for one behaviour, so the picker stopped offering it.
+///
+/// The translation stays. Settings files written before it was retired still
+/// hold `hien`, and those users keep the behaviour they chose rather than
+/// having their language silently reinterpreted as a literal `hien` tag that
+/// Deepgram would reject.
 #[test]
-fn the_auto_detect_sentinel_is_still_the_pickers_own_pseudo_code() {
-    let source = picker_source();
-
+fn the_retired_hinglish_code_still_translates_for_settings_that_hold_it() {
+    assert_eq!(deepgram_language_tag("hien"), "multi");
     assert!(
-        source.contains("\"auto\""),
-        "the picker no longer uses `auto` as its detect-language sentinel.\n\n\
-         `language_mode` special-cases `auto` into detect_language=true. If the \
-         sentinel was renamed, that branch is dead and the new value falls through \
-         to the single-language arm, which sends it as a literal language tag — the \
-         exact bug this mapping was introduced to fix."
+        !picker_source().contains("\"hien\""),
+        "`hien` is back in the picker: it is indistinguishable from Auto-detect, \
+         so either drop it again or give the picker a label that says so."
     );
+}
+
+/// `auto` is a legacy settings value, no longer emitted by any picker.
+///
+/// It was the *shared* language picker's detect sentinel. That picker
+/// (`LanguagePicker.svelte`) is gone, and Deepgram's own picker uses
+/// `__auto__`, so nothing in the UI writes `auto` any more.
+///
+/// The mapping stays because settings files predating the cutover still hold
+/// it, in `languages` lists that `migrate` folds into `deepgramLanguage`.
+/// Without the special case it would fall through to the single-language arm
+/// and be sent as a literal `auto` tag, which Deepgram rejects — the exact bug
+/// this mapping was introduced to fix.
+#[test]
+fn the_legacy_shared_auto_sentinel_still_means_detect() {
     assert_eq!(language_mode(&["auto".to_string()]), LanguageMode::Detect);
+    assert_eq!(
+        language_mode(&["auto".to_string(), "de".to_string()]),
+        LanguageMode::Detect,
+        "detection must win regardless of what else the legacy list held"
+    );
 }

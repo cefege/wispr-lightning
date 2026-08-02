@@ -1,128 +1,89 @@
 /**
- * The dictation language table, in the Swift app's display order.
+ * Dictation languages Deepgram actually accepts, in the Swift app's display
+ * order.
  *
- * Order is load-bearing twice over: the picker list renders in it, and so do
- * the selected-language chips, because the Swift implementation filtered a
- * `Set` through this master array rather than tracking selection order
- * (ui-spec 3.5, MATRIX SET-046).
+ * Order is load-bearing: the picker renders in it, as the Swift implementation
+ * did by filtering a `Set` through this master array rather than tracking
+ * selection order (ui-spec 3.5, MATRIX SET-046).
  *
- * Transcribed verbatim from `docs/parity/ui-spec.md`. Note the prose there
- * says "101 rows" while the enumerated table has 104 entries; the enumeration
- * is what the Swift source listed, so the enumeration wins.
+ * This table was inherited from a build that fronted a different provider, and
+ * carried 104 languages of which Deepgram rejected 48 outright -- selecting one
+ * produced an HTTP 400 at dictation time, with nothing in the UI to warn the
+ * user. Every entry below was verified against `/v1/listen` with both models.
+ *
+ * `nova2` records whether Nova 2 also accepts the language; 18 of these are
+ * Nova 3 only, so the picker filters on the selected model. Nothing here is
+ * Nova 2 only.
+ *
+ * The code is the picker's own spelling, not always Deepgram's tag --
+ * `deepgram_language_tag` in `crates/wl-providers/src/deepgram.rs` translates
+ * `engb`, `dech`, `zhcn`, `zh` and `yue`. That function and this table must
+ * agree; `zh` is Traditional here, which is the only reason it maps to
+ * `zh-Hant` there.
  */
 
 export interface Language {
   code: string;
   name: string;
   flag: string;
+  /** Nova 2 accepts this language too. Nova 3 accepts every entry here. */
+  nova2: boolean;
 }
 
 export const LANGUAGES: readonly Language[] = [
-  { code: "en", name: "English", flag: "🇺🇸" },
-  { code: "engb", name: "English — British", flag: "🇬🇧" },
-  { code: "zh", name: "Chinese — Traditional (繁體中文)", flag: "🇹🇼" },
-  { code: "zhcn", name: "Chinese — Simplified (简体中文)", flag: "🇨🇳" },
-  { code: "de", name: "German (Deutsch)", flag: "🇩🇪" },
-  { code: "dech", name: "German — Swiss (Deutsch)", flag: "🇨🇭" },
-  { code: "es", name: "Spanish (Español)", flag: "🇪🇸" },
-  { code: "ru", name: "Russian (Русский)", flag: "🇷🇺" },
-  { code: "ko", name: "Korean (한국어)", flag: "🇰🇷" },
-  { code: "fr", name: "French (Français)", flag: "🇫🇷" },
-  { code: "ja", name: "Japanese (日本語)", flag: "🇯🇵" },
-  { code: "pt", name: "Portuguese (Português)", flag: "🇧🇷" },
-  { code: "tr", name: "Turkish (Türkçe)", flag: "🇹🇷" },
-  { code: "pl", name: "Polish (Polski)", flag: "🇵🇱" },
-  { code: "ca", name: "Catalan (Català)", flag: "🇪🇸" },
-  { code: "nl", name: "Dutch (Nederlands)", flag: "🇳🇱" },
-  { code: "ar", name: "Arabic (العربية)", flag: "🇸🇦" },
-  { code: "sv", name: "Swedish (Svenska)", flag: "🇸🇪" },
-  { code: "it", name: "Italian (Italiano)", flag: "🇮🇹" },
-  { code: "id", name: "Indonesian (Bahasa)", flag: "🇮🇩" },
-  { code: "hi", name: "Hindi (हिन्दी)", flag: "🇮🇳" },
-  { code: "hien", name: "Hinglish", flag: "🇮🇳" },
-  { code: "fi", name: "Finnish (Suomi)", flag: "🇫🇮" },
-  { code: "vi", name: "Vietnamese (Tiếng Việt)", flag: "🇻🇳" },
-  { code: "he", name: "Hebrew (עברית)", flag: "🇮🇱" },
-  { code: "uk", name: "Ukrainian (Українська)", flag: "🇺🇦" },
-  { code: "el", name: "Greek (Ελληνικά)", flag: "🇬🇷" },
-  { code: "ms", name: "Malay (Bahasa Melayu)", flag: "🇲🇾" },
-  { code: "cs", name: "Czech (Čeština)", flag: "🇨🇿" },
-  { code: "ro", name: "Romanian (Română)", flag: "🇷🇴" },
-  { code: "da", name: "Danish (Dansk)", flag: "🇩🇰" },
-  { code: "hu", name: "Hungarian (Magyar)", flag: "🇭🇺" },
-  { code: "ta", name: "Tamil (தமிழ்)", flag: "🇮🇳" },
-  { code: "no", name: "Norwegian (Norsk)", flag: "🇳🇴" },
-  { code: "th", name: "Thai (ไทย)", flag: "🇹🇭" },
-  { code: "ur", name: "Urdu (اردو)", flag: "🇵🇰" },
-  { code: "hr", name: "Croatian (Hrvatski)", flag: "🇭🇷" },
-  { code: "bg", name: "Bulgarian (Български)", flag: "🇧🇬" },
-  { code: "lt", name: "Lithuanian (Lietuvių)", flag: "🇱🇹" },
-  { code: "la", name: "Latin (Latina)", flag: "🌍" },
-  { code: "mi", name: "Maori", flag: "🇳🇿" },
-  { code: "ml", name: "Malayalam (മലയാളം)", flag: "🇮🇳" },
-  { code: "cy", name: "Welsh (Cymraeg)", flag: "🏴󠁧󠁢󠁷󠁬󠁳󠁿" },
-  { code: "sk", name: "Slovak (Slovenčina)", flag: "🇸🇰" },
-  { code: "te", name: "Telugu (తెలుగు)", flag: "🇮🇳" },
-  { code: "fa", name: "Persian (فارسی)", flag: "🇮🇷" },
-  { code: "lv", name: "Latvian (Latviešu)", flag: "🇱🇻" },
-  { code: "bn", name: "Bengali (বাংলা)", flag: "🇧🇩" },
-  { code: "sr", name: "Serbian (Српски)", flag: "🇷🇸" },
-  { code: "az", name: "Azerbaijani (Azərbaycan)", flag: "🇦🇿" },
-  { code: "sl", name: "Slovenian (Slovenščina)", flag: "🇸🇮" },
-  { code: "kn", name: "Kannada (ಕನ್ನಡ)", flag: "🇮🇳" },
-  { code: "et", name: "Estonian (Eesti)", flag: "🇪🇪" },
-  { code: "mk", name: "Macedonian (Македонски)", flag: "🇲🇰" },
-  { code: "br", name: "Breton (Brezhoneg)", flag: "🇫🇷" },
-  { code: "eu", name: "Basque (Euskara)", flag: "🇪🇸" },
-  { code: "is", name: "Icelandic (Íslenska)", flag: "🇮🇸" },
-  { code: "hy", name: "Armenian (Հայերեն)", flag: "🇦🇲" },
-  { code: "ne", name: "Nepali (नेपाली)", flag: "🇳🇵" },
-  { code: "mn", name: "Mongolian (Монгол)", flag: "🇲🇳" },
-  { code: "bs", name: "Bosnian (Bosanski)", flag: "🇧🇦" },
-  { code: "kk", name: "Kazakh (Қазақша)", flag: "🇰🇿" },
-  { code: "sq", name: "Albanian (Shqip)", flag: "🇦🇱" },
-  { code: "sw", name: "Swahili (Kiswahili)", flag: "🇹🇿" },
-  { code: "gl", name: "Galician (Galego)", flag: "🇪🇸" },
-  { code: "mr", name: "Marathi (मराठी)", flag: "🇮🇳" },
-  { code: "pa", name: "Punjabi (ਪੰਜਾਬੀ)", flag: "🇮🇳" },
-  { code: "si", name: "Sinhala (සිංහල)", flag: "🇱🇰" },
-  { code: "km", name: "Khmer (ខ្មែរ)", flag: "🇰🇭" },
-  { code: "sn", name: "Shona (chiShona)", flag: "🇿🇼" },
-  { code: "yo", name: "Yoruba", flag: "🇳🇬" },
-  { code: "so", name: "Somali (Soomaali)", flag: "🇸🇴" },
-  { code: "af", name: "Afrikaans", flag: "🇿🇦" },
-  { code: "oc", name: "Occitan", flag: "🌍" },
-  { code: "ka", name: "Georgian (ქართული)", flag: "🇬🇪" },
-  { code: "be", name: "Belarusian (Беларуская)", flag: "🇧🇾" },
-  { code: "tg", name: "Tajik (Тоҷикӣ)", flag: "🇹🇯" },
-  { code: "sd", name: "Sindhi (سنڌي)", flag: "🇵🇰" },
-  { code: "gu", name: "Gujarati (ગુજરાતી)", flag: "🇮🇳" },
-  { code: "am", name: "Amharic (አማርኛ)", flag: "🇪🇹" },
-  { code: "yi", name: "Yiddish (ייִדיש)", flag: "🌍" },
-  { code: "lo", name: "Lao (ລາວ)", flag: "🇱🇦" },
-  { code: "uz", name: "Uzbek (Oʻzbek)", flag: "🇺🇿" },
-  { code: "fo", name: "Faroese (Føroyskt)", flag: "🇫🇴" },
-  { code: "ht", name: "Haitian Creole (Kreyòl Ayisyen)", flag: "🇭🇹" },
-  { code: "ps", name: "Pashto (پښتو)", flag: "🇦🇫" },
-  { code: "tk", name: "Turkmen", flag: "🇹🇲" },
-  { code: "nn", name: "Nynorsk", flag: "🇳🇴" },
-  { code: "mt", name: "Maltese (Malti)", flag: "🇲🇹" },
-  { code: "sa", name: "Sanskrit (संस्कृतम्)", flag: "🇮🇳" },
-  { code: "lb", name: "Luxembourgish (Lëtzebuergesch)", flag: "🇱🇺" },
-  { code: "my", name: "Myanmar (မြန်မာ)", flag: "🇲🇲" },
-  { code: "bo", name: "Tibetan (བོད་སྐད)", flag: "🌍" },
-  { code: "tl", name: "Tagalog", flag: "🇵🇭" },
-  { code: "mg", name: "Malagasy", flag: "🇲🇬" },
-  { code: "as", name: "Assamese (অসমীয়া)", flag: "🇮🇳" },
-  { code: "tt", name: "Tatar (Татар)", flag: "🇷🇺" },
-  { code: "haw", name: "Hawaiian (ʻŌlelo Hawaiʻi)", flag: "🇺🇸" },
-  { code: "ln", name: "Lingala", flag: "🇨🇩" },
-  { code: "ha", name: "Hausa", flag: "🇳🇬" },
-  { code: "ba", name: "Bashkir (Башҡортса)", flag: "🇷🇺" },
-  { code: "jv", name: "Javanese (Basa Jawa)", flag: "🇮🇩" },
-  { code: "su", name: "Sundanese (Basa Sunda)", flag: "🇮🇩" },
-  { code: "yue", name: "Cantonese (粵語)", flag: "🇭🇰" },
+  { code: "en", name: "English", flag: "🇺🇸", nova2: true },
+  { code: "engb", name: "English — British", flag: "🇬🇧", nova2: true },
+  { code: "zh", name: "Chinese — Traditional (繁體中文)", flag: "🇹🇼", nova2: true },
+  { code: "zhcn", name: "Chinese — Simplified (简体中文)", flag: "🇨🇳", nova2: true },
+  { code: "de", name: "German (Deutsch)", flag: "🇩🇪", nova2: true },
+  { code: "dech", name: "German — Swiss (Deutsch)", flag: "🇨🇭", nova2: true },
+  { code: "es", name: "Spanish (Español)", flag: "🇪🇸", nova2: true },
+  { code: "ru", name: "Russian (Русский)", flag: "🇷🇺", nova2: true },
+  { code: "ko", name: "Korean (한국어)", flag: "🇰🇷", nova2: true },
+  { code: "fr", name: "French (Français)", flag: "🇫🇷", nova2: true },
+  { code: "ja", name: "Japanese (日本語)", flag: "🇯🇵", nova2: true },
+  { code: "pt", name: "Portuguese (Português)", flag: "🇧🇷", nova2: true },
+  { code: "tr", name: "Turkish (Türkçe)", flag: "🇹🇷", nova2: true },
+  { code: "pl", name: "Polish (Polski)", flag: "🇵🇱", nova2: true },
+  { code: "ca", name: "Catalan (Català)", flag: "🇪🇸", nova2: true },
+  { code: "nl", name: "Dutch (Nederlands)", flag: "🇳🇱", nova2: true },
+  { code: "ar", name: "Arabic (العربية)", flag: "🇸🇦", nova2: false },
+  { code: "sv", name: "Swedish (Svenska)", flag: "🇸🇪", nova2: true },
+  { code: "it", name: "Italian (Italiano)", flag: "🇮🇹", nova2: true },
+  { code: "id", name: "Indonesian (Bahasa)", flag: "🇮🇩", nova2: true },
+  { code: "hi", name: "Hindi (हिन्दी)", flag: "🇮🇳", nova2: true },
+  { code: "fi", name: "Finnish (Suomi)", flag: "🇫🇮", nova2: true },
+  { code: "vi", name: "Vietnamese (Tiếng Việt)", flag: "🇻🇳", nova2: true },
+  { code: "he", name: "Hebrew (עברית)", flag: "🇮🇱", nova2: false },
+  { code: "uk", name: "Ukrainian (Українська)", flag: "🇺🇦", nova2: true },
+  { code: "el", name: "Greek (Ελληνικά)", flag: "🇬🇷", nova2: true },
+  { code: "ms", name: "Malay (Bahasa Melayu)", flag: "🇲🇾", nova2: true },
+  { code: "cs", name: "Czech (Čeština)", flag: "🇨🇿", nova2: true },
+  { code: "ro", name: "Romanian (Română)", flag: "🇷🇴", nova2: true },
+  { code: "da", name: "Danish (Dansk)", flag: "🇩🇰", nova2: true },
+  { code: "hu", name: "Hungarian (Magyar)", flag: "🇭🇺", nova2: true },
+  { code: "ta", name: "Tamil (தமிழ்)", flag: "🇮🇳", nova2: false },
+  { code: "no", name: "Norwegian (Norsk)", flag: "🇳🇴", nova2: true },
+  { code: "th", name: "Thai (ไทย)", flag: "🇹🇭", nova2: true },
+  { code: "ur", name: "Urdu (اردو)", flag: "🇵🇰", nova2: false },
+  { code: "hr", name: "Croatian (Hrvatski)", flag: "🇭🇷", nova2: false },
+  { code: "bg", name: "Bulgarian (Български)", flag: "🇧🇬", nova2: true },
+  { code: "lt", name: "Lithuanian (Lietuvių)", flag: "🇱🇹", nova2: true },
+  { code: "sk", name: "Slovak (Slovenčina)", flag: "🇸🇰", nova2: true },
+  { code: "te", name: "Telugu (తెలుగు)", flag: "🇮🇳", nova2: false },
+  { code: "fa", name: "Persian (فارسی)", flag: "🇮🇷", nova2: false },
+  { code: "lv", name: "Latvian (Latviešu)", flag: "🇱🇻", nova2: true },
+  { code: "bn", name: "Bengali (বাংলা)", flag: "🇧🇩", nova2: false },
+  { code: "sr", name: "Serbian (Српски)", flag: "🇷🇸", nova2: false },
+  { code: "sl", name: "Slovenian (Slovenščina)", flag: "🇸🇮", nova2: false },
+  { code: "kn", name: "Kannada (ಕನ್ನಡ)", flag: "🇮🇳", nova2: false },
+  { code: "et", name: "Estonian (Eesti)", flag: "🇪🇪", nova2: true },
+  { code: "mk", name: "Macedonian (Македонски)", flag: "🇲🇰", nova2: false },
+  { code: "ne", name: "Nepali (नेपाली)", flag: "🇳🇵", nova2: false },
+  { code: "bs", name: "Bosnian (Bosanski)", flag: "🇧🇦", nova2: false },
+  { code: "mr", name: "Marathi (मराठी)", flag: "🇮🇳", nova2: false },
+  { code: "be", name: "Belarusian (Беларуская)", flag: "🇧🇾", nova2: false },
+  { code: "gu", name: "Gujarati (ગુજરાતી)", flag: "🇮🇳", nova2: false },
+  { code: "tl", name: "Tagalog", flag: "🇵🇭", nova2: false },
+  { code: "yue", name: "Cantonese (粵語)", flag: "🇭🇰", nova2: true },
 ];
-
-/** The pseudo-code that means "let the server decide". Never a real language. */
-export const AUTO_CODE = "auto";

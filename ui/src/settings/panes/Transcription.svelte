@@ -35,10 +35,13 @@
   // `__auto__` and `__multi__` both send `language=multi` to the streaming
   // endpoint, so offering both was two labels for one behaviour. Only the
   // canonical sentinel is listed; legacy `__multi__` is handled below.
-  const DEEPGRAM_LANGUAGES = [
-    { value: "__auto__", label: "Auto-detect (multilingual)" },
-    ...LANGUAGES.map((language) => ({ value: language.code, label: language.name })),
-  ];
+  //
+  // Nova 2 accepts a subset of Nova 3's languages, so the list is filtered on
+  // the selected model rather than offering codes the request would reject.
+  const supportsNova2 = $derived(value.deepgramModel.toLowerCase().startsWith("nova-2"));
+  const availableLanguages = $derived(
+    LANGUAGES.filter((language) => !supportsNova2 || language.nova2),
+  );
 
   // A settings file written before the two options were merged still holds
   // `__multi__`. It behaves identically, so show it as the auto entry rather
@@ -46,6 +49,31 @@
   const selectedLanguage = $derived(
     value.deepgramLanguage === "__multi__" ? "__auto__" : value.deepgramLanguage,
   );
+
+  // The stored language can be one this model rejects, either from switching
+  // to Nova 2 or from a file written by an older build. Silently rewriting the
+  // user's setting would hide the problem, and dropping it from the list would
+  // leave the picker blank claiming something else is selected, so it stays
+  // listed and labelled while a warning explains the 400 it would cause.
+  const unsupportedSelection = $derived(
+    selectedLanguage !== "__auto__" &&
+      !availableLanguages.some((language) => language.code === selectedLanguage)
+      ? LANGUAGES.find((language) => language.code === selectedLanguage)
+      : undefined,
+  );
+
+  const DEEPGRAM_LANGUAGES = $derived([
+    { value: "__auto__", label: "Auto-detect (multilingual)" },
+    ...availableLanguages.map((language) => ({ value: language.code, label: language.name })),
+    ...(unsupportedSelection
+      ? [
+          {
+            value: unsupportedSelection.code,
+            label: `${unsupportedSelection.name} — not available on Nova 2`,
+          },
+        ]
+      : []),
+  ]);
 
   let status = $state<DeepgramStatus | null>(null);
   let loadError = $state<string | null>(null);
@@ -224,6 +252,13 @@
       onchange={(language) => updateSettings((draft) => { draft.deepgramLanguage = language; })}
     />
   </div>
+
+  {#if unsupportedSelection}
+    <p class="error" role="alert">
+      Nova 2 does not accept {unsupportedSelection.name}. Dictation will fail until you pick
+      another language or switch back to Nova 3.
+    </p>
+  {/if}
 
   <p class="caption">Auto-detect streams Deepgram's multilingual model, which recognises several languages in one dictation; its per-language coverage is narrower than picking a fixed language.</p>
 
