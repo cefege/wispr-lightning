@@ -181,7 +181,11 @@ impl Default for Settings {
             use_screen_context: true,
             use_accessibility_context: true,
             auto_learn_words: true,
-            deepgram_language: "en".into(),
+            // `__auto__`, Deepgram's auto-detect sentinel (wl-providers'
+            // `AUTO_DETECT`; not referenced directly because wl-core sits
+            // below wl-providers). Dictation should understand whatever the
+            // user speaks before it assumes English.
+            deepgram_language: "__auto__".into(),
 
             natural_mode_enabled: false,
             natural_mode_speed: TypingSpeed::Normal,
@@ -361,7 +365,15 @@ impl Settings {
                 .filter_map(|value| value.as_str().map(str::to_owned))
                 .filter(|value| !value.trim().is_empty())
                 .collect();
-            if self.deepgram_language.trim().is_empty() || self.deepgram_language == "en" {
+            // "The user never expressed a Deepgram-specific choice." Every
+            // value this can produce is one no Deepgram picker wrote: empty
+            // and `en` predate the picker, and `__auto__` is what the
+            // container-level `serde(default)` supplies when a pre-cutover
+            // file has no `deepgramLanguage` key at all.
+            let untouched = self.deepgram_language.trim().is_empty()
+                || self.deepgram_language == "en"
+                || self.deepgram_language == "__auto__";
+            if untouched {
                 if selected.len() > 1 {
                     self.deepgram_language = "__multi__".into();
                 } else if let Some(language) = selected.into_iter().next() {
@@ -444,7 +456,9 @@ mod tests {
     fn defaults_are_deepgram_only() {
         let settings = Settings::default();
         assert_eq!(settings.deepgram_model, "nova-3");
-        assert_eq!(settings.deepgram_language, "en");
+        // Auto-detect, not English: a fresh install should transcribe whatever
+        // the user speaks without being told the language first.
+        assert_eq!(settings.deepgram_language, "__auto__");
         assert!(settings.deepgram_keyterm_boost);
     }
 
@@ -465,6 +479,36 @@ mod tests {
         assert!(!settings.unknown.contains_key("activeVendor"));
         assert!(!settings.unknown.contains_key("languages"));
         assert!(!settings.unknown.contains_key("aiFormatting"));
+    }
+
+    /// A pre-cutover file has no `deepgramLanguage` key at all, so the
+    /// container-level `serde(default)` fills in the auto-detect default. That
+    /// default must still count as "never chosen", or the shared language list
+    /// these users did configure would be dropped on upgrade.
+    #[test]
+    fn migration_preserves_the_old_language_when_the_deepgram_key_is_absent() {
+        let mut settings: Settings = serde_json::from_value(serde_json::json!({
+            "languages": ["de"],
+            "enableSounds": false
+        }))
+        .unwrap();
+        assert_eq!(settings.deepgram_language, "__auto__");
+
+        assert!(settings.migrate());
+        assert_eq!(settings.deepgram_language, "de");
+    }
+
+    /// Two configured languages still collapse to the code-switching sentinel
+    /// rather than the auto default.
+    #[test]
+    fn migration_collapses_several_old_languages_to_multi() {
+        let mut settings: Settings = serde_json::from_value(serde_json::json!({
+            "languages": ["de", "fr"]
+        }))
+        .unwrap();
+
+        assert!(settings.migrate());
+        assert_eq!(settings.deepgram_language, "__multi__");
     }
 
     #[test]

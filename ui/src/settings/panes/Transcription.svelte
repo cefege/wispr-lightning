@@ -30,11 +30,20 @@
     { value: "nova-2", label: "Nova 2" },
   ];
 
+  // `__auto__` and `__multi__` both send `language=multi` to the streaming
+  // endpoint, so offering both was two labels for one behaviour. Only the
+  // canonical sentinel is listed; legacy `__multi__` is handled below.
   const DEEPGRAM_LANGUAGES = [
-    { value: "__auto__", label: "Auto-detect (multilingual streaming)" },
-    { value: "__multi__", label: "Multilingual / code-switching" },
+    { value: "__auto__", label: "Auto-detect (multilingual)" },
     ...LANGUAGES.map((language) => ({ value: language.code, label: language.name })),
   ];
+
+  // A settings file written before the two options were merged still holds
+  // `__multi__`. It behaves identically, so show it as the auto entry rather
+  // than leaving the picker blank on a value it no longer lists.
+  const selectedLanguage = $derived(
+    value.deepgramLanguage === "__multi__" ? "__auto__" : value.deepgramLanguage,
+  );
 
   let status = $state<DeepgramStatus | null>(null);
   let loadError = $state<string | null>(null);
@@ -158,13 +167,13 @@
     <label for="deepgram-language">Language</label>
     <Select
       id="deepgram-language"
-      value={value.deepgramLanguage}
+      value={selectedLanguage}
       options={DEEPGRAM_LANGUAGES}
       onchange={(language) => updateSettings((draft) => { draft.deepgramLanguage = language; })}
     />
   </div>
 
-  <p class="caption">Auto-detect uses Deepgram's multilingual streaming model; its language coverage is narrower than a fixed language.</p>
+  <p class="caption">Auto-detect streams Deepgram's multilingual model, which recognises several languages in one dictation; its per-language coverage is narrower than picking a fixed language.</p>
 
   <SettingRow
     title="Contextual recognition hints"

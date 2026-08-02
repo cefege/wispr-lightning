@@ -2210,10 +2210,24 @@ mod tests {
         );
     }
 
+    /// A fresh profile detects the language instead of assuming English.
+    ///
+    /// `DEFAULT_LANGUAGE` still backs an *empty* setting — that is Deepgram's
+    /// own fallback for a blank field, and is asserted separately. This covers
+    /// the shipped default, which is the auto-detect sentinel.
     #[test]
-    fn a_fresh_profile_with_no_language_anywhere_uses_deepgrams_own_default() {
+    fn a_fresh_profile_detects_the_language() {
+        assert_eq!(settings_language(&Settings::default()), LanguageMode::Detect);
+    }
+
+    #[test]
+    fn an_empty_language_field_still_falls_back_to_deepgrams_own_default() {
+        let settings = Settings {
+            deepgram_language: String::new(),
+            ..Default::default()
+        };
         assert_eq!(
-            settings_language(&Settings::default()),
+            settings_language(&settings),
             LanguageMode::Explicit(DEFAULT_LANGUAGE.into())
         );
     }
