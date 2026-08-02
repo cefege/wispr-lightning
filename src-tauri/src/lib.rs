@@ -80,6 +80,7 @@ pub fn run() {
             commands::sound_packs,
             commands::deepgram_status,
             commands::deepgram_health,
+            commands::deepgram_balance,
             commands::deepgram_key_save,
             commands::deepgram_key_clear,
             commands::history_list,

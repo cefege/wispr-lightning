@@ -9,11 +9,13 @@
   import Toggle from "../../lib/components/Toggle.svelte";
   import {
     describe,
+    deepgramBalance,
     deepgramHealth,
     deepgramKeyClear,
     deepgramKeySave,
     deepgramStatus,
     updateSettings,
+    type DeepgramBalance,
     type DeepgramStatus,
     type Settings,
   } from "../../lib/ipc";
@@ -51,6 +53,9 @@
   let keyBusy = $state(false);
   let keyError = $state<string | null>(null);
   let health = $state<{ ok: boolean; message: string } | null>(null);
+  let balance = $state<DeepgramBalance | null>(null);
+  let balanceError = $state<string | null>(null);
+  let balanceBusy = $state(false);
   let healthBusy = $state(false);
 
   const configured = $derived(status?.configured ?? false);
@@ -110,6 +115,29 @@
       healthBusy = false;
     }
   }
+
+  async function loadBalance() {
+    balanceBusy = true;
+    balanceError = null;
+    try {
+      balance = await deepgramBalance();
+    } catch (cause) {
+      balance = null;
+      balanceError = describe(cause);
+    } finally {
+      balanceBusy = false;
+    }
+  }
+
+  // Deepgram reports `usd` for pay-as-you-go credit and `hour` for committed
+  // volume, so the unit decides the rendering instead of being assumed.
+  const balanceLabel = $derived.by(() => {
+    if (!balance) return "";
+    const { amount, units } = balance;
+    if (units === "usd") return `$${amount.toFixed(2)}`;
+    if (units === "hour") return `${amount.toFixed(1)} hours`;
+    return `${amount} ${units}`;
+  });
 </script>
 
 <GroupBox title="Deepgram">
@@ -150,6 +178,30 @@
     <p class="caption">Stored locally in the app data folder. The saved value is never revealed.</p>
     {#if keyError}<p class="error" role="alert">{keyError}</p>{/if}
   </div>
+
+  {#if configured}
+    <Divider />
+
+    <div class="credits">
+      <div class="credits-head">
+        <div>
+          <strong>Credits remaining</strong>
+          {#if balance}
+            <p>{balance.projectName}</p>
+          {:else}
+            <p>Prepaid balance on your Deepgram account.</p>
+          {/if}
+        </div>
+        <div class="credits-value">
+          {#if balance}<span class="amount">{balanceLabel}</span>{/if}
+          <Button disabled={balanceBusy} onclick={() => void loadBalance()}>
+            {balanceBusy ? "Checking…" : balance ? "Refresh" : "Check"}
+          </Button>
+        </div>
+      </div>
+      {#if balanceError}<p class="error" role="alert">{balanceError}</p>{/if}
+    </div>
+  {/if}
 
   <Divider />
 
@@ -210,6 +262,7 @@
 
 <style>
   .deepgram-head,
+  .credits-head,
   .key-row,
   .labelled,
   .test-row {
@@ -218,9 +271,13 @@
     gap: var(--space-2);
   }
 
-  .deepgram-head { justify-content: space-between; }
+  .deepgram-head, .credits-head { justify-content: space-between; }
   .deepgram-head p,
+  .credits-head p,
   .caption { margin: 0; color: var(--text-secondary); font-size: var(--text-subheadline); }
+  .credits { display: grid; gap: var(--space-2); }
+  .credits-value { display: flex; align-items: center; gap: var(--space-2); }
+  .amount { font-size: var(--text-title3); font-variant-numeric: tabular-nums; }
   .key-block { display: grid; gap: var(--space-2); }
   .key-row :global(.field) { flex: 1; }
   .labelled label { min-width: 7rem; }

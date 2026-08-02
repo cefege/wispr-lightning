@@ -155,6 +155,11 @@ export interface DeepgramHealth {
   message: string;
 }
 
+export interface DeepgramBalance {
+  amount: number;
+  units: string;
+  projectName: string;
+}
 
 /**
  * The db model types below are camelCase and expose only the columns the UI
@@ -268,6 +273,7 @@ export const soundPacks = () => call<string[]>("sound_packs");
 
 export const deepgramStatus = () => call<DeepgramStatus>("deepgram_status");
 export const deepgramHealth = () => call<DeepgramHealth>("deepgram_health");
+export const deepgramBalance = () => call<DeepgramBalance>("deepgram_balance");
 export const deepgramKeySave = (key: string) => call<null>("deepgram_key_save", { key });
 export const deepgramKeyClear = () => call<null>("deepgram_key_clear");
 

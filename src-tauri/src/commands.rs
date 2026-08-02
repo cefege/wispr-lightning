@@ -197,6 +197,36 @@ pub async fn deepgram_health(state: State<'_, Arc<AppState>>) -> Result<Deepgram
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeepgramBalance {
+    pub amount: f64,
+    pub units: String,
+    pub project_name: String,
+}
+
+/// Remaining Deepgram credit.
+///
+/// Built on a fresh provider rather than the pipeline's: balances come from
+/// the management API and have nothing to do with the dictation seam, which
+/// exists so tests can substitute a loopback double. The key is resolved from
+/// the same credential store either way.
+#[tauri::command]
+pub async fn deepgram_balance(state: State<'_, Arc<AppState>>) -> Result<DeepgramBalance> {
+    if !wl_providers::is_ready(&state.credentials) {
+        return Err("Save a Deepgram API key first.".into());
+    }
+    let provider = wl_providers::deepgram::DeepgramProvider::new(Default::default());
+    match provider.balance().await {
+        Ok(balance) => Ok(DeepgramBalance {
+            amount: balance.amount,
+            units: balance.units,
+            project_name: balance.project_name,
+        }),
+        Err(error) => Err(error.user_message()),
+    }
+}
+
 #[tauri::command]
 pub async fn deepgram_key_save(state: State<'_, Arc<AppState>>, key: String) -> Result<()> {
     let key = key.trim();

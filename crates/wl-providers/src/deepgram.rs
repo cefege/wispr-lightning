@@ -101,6 +101,45 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// The settings screen blocks on `health()`, so it fails fast.
 const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Remaining prepaid credit, as reported by the Deepgram management API.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct AccountBalance {
+    /// Summed across the project's balance entries.
+    pub amount: f64,
+    /// Deepgram's own unit string: `usd` for pay-as-you-go, `hour` for
+    /// committed volume. Passed through rather than interpreted, because a
+    /// guess that renders hours as dollars is worse than showing the raw unit.
+    pub units: String,
+    /// Which project the figure belongs to; an account can hold several.
+    pub project_name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct ProjectList {
+    #[serde(default)]
+    projects: Vec<Project>,
+}
+
+#[derive(serde::Deserialize)]
+struct Project {
+    project_id: String,
+    #[serde(default)]
+    name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct BalanceList {
+    #[serde(default)]
+    balances: Vec<BalanceEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct BalanceEntry {
+    amount: f64,
+    #[serde(default)]
+    units: String,
+}
+
 /// Keep-alive cadence. Well inside Deepgram's 10 s idle window.
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -480,6 +519,84 @@ impl DeepgramProvider {
             stored.as_deref(),
         )
         .ok_or(ProviderError::NotConfigured { provider: PROVIDER })
+    }
+
+    /// Remaining prepaid credit on the account behind the saved key.
+    ///
+    /// Two requests, because balances are per project and the key does not
+    /// name one: `GET /v1/projects` for the first project, then
+    /// `GET /v1/projects/{id}/balances`. Multiple balances (separate
+    /// purchases) are summed, which is what the console shows as one figure.
+    ///
+    /// A transcription key is not automatically a management key. Deepgram
+    /// scopes these separately, so a perfectly good dictation key answers 403
+    /// here; that case gets its own message rather than the generic
+    /// "rejected the API key", which would send the user to replace a key that
+    /// is working fine.
+    pub async fn balance(&self) -> Result<AccountBalance> {
+        let key = self.key()?;
+        let base = self.config.base_url.trim_end_matches('/');
+
+        let projects: ProjectList = self.management_get(&format!("{base}/v1/projects"), &key).await?;
+        let project = projects
+            .projects
+            .into_iter()
+            .next()
+            .ok_or_else(|| ProviderError::ServerError("Deepgram returned no projects".into()))?;
+
+        let balances: BalanceList = self
+            .management_get(
+                &format!("{base}/v1/projects/{}/balances", project.project_id),
+                &key,
+            )
+            .await?;
+
+        // Deepgram reports `usd` for pay-as-you-go credit and `hour` for
+        // committed volume. Mixing the two in one sum would be nonsense, so
+        // the units of the first entry decide and the rest must match it.
+        let units = balances
+            .balances
+            .first()
+            .map(|b| b.units.clone())
+            .unwrap_or_else(|| "usd".to_string());
+        let amount = balances
+            .balances
+            .iter()
+            .filter(|b| b.units == units)
+            .map(|b| b.amount)
+            .sum();
+
+        Ok(AccountBalance {
+            amount,
+            units,
+            project_name: project.name,
+        })
+    }
+
+    /// One authenticated management-API `GET`, decoded as JSON.
+    async fn management_get<T: serde::de::DeserializeOwned>(
+        &self,
+        url: &str,
+        key: &str,
+    ) -> Result<T> {
+        let response = self
+            .client
+            .get(url)
+            .header("Authorization", format!("Token {key}"))
+            .timeout(HEALTH_TIMEOUT)
+            .send()
+            .await
+            .map_err(transport_error)?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(management_status_error(status.as_u16(), &body));
+        }
+        response
+            .json::<T>()
+            .await
+            .map_err(|e| ProviderError::ServerError(format!("unreadable Deepgram response: {e}")))
     }
 
     /// Build the fully-qualified `/v1/listen` WebSocket URL for one dictation.
@@ -1035,6 +1152,24 @@ fn status_error(status: u16, body: &str) -> ProviderError {
         )),
         _ => ProviderError::from_status(status, PROVIDER, body),
     }
+}
+
+/// Map a management-API failure.
+///
+/// The split from [`status_error`] exists for 403. On `/v1/listen` a 403 means
+/// the key is bad, but the management API also answers 403 for a *valid* key
+/// that simply lacks a scope — Deepgram issues transcription keys without
+/// `billing:read` by default. Telling that user to paste a fresh key would be
+/// wrong twice: their key works, and a replacement made the same way fails
+/// identically. The remedy is a scope, so that is what the message names.
+fn management_status_error(status: u16, body: &str) -> ProviderError {
+    if status == 403 {
+        return ProviderError::auth_failed_with(
+            "This Deepgram key cannot read billing. In console.deepgram.com create a key with \
+             the 'billing:read' scope (Settings \u{2192} API Keys), then paste it here.",
+        );
+    }
+    status_error(status, body)
 }
 
 /// Distinguish "we gave up waiting" from "we could not reach them", because
@@ -2409,5 +2544,100 @@ mod tests {
             .await
             .expect("recording enabled")
             .is_empty());
+    }
+
+    // -- Balance ------------------------------------------------------------
+
+    async fn balance_server(balances: ResponseTemplate) -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/projects"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "projects": [{ "project_id": "p-1", "name": "Personal" }]
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v1/projects/p-1/balances"))
+            .respond_with(balances)
+            .mount(&server)
+            .await;
+        server
+    }
+
+    #[tokio::test]
+    async fn balance_sums_the_projects_entries() {
+        // Separate purchases are separate balances; the console shows one
+        // figure, so the entries are added rather than reporting the first.
+        let server = balance_server(ResponseTemplate::new(200).set_body_json(json!({
+            "balances": [
+                { "balance_id": "b-1", "amount": 12.5, "units": "usd" },
+                { "balance_id": "b-2", "amount": 7.25, "units": "usd" }
+            ]
+        })))
+        .await;
+
+        let balance = health_provider(&server).balance().await.expect("balance");
+        assert_eq!(balance.amount, 19.75);
+        assert_eq!(balance.units, "usd");
+        assert_eq!(balance.project_name, "Personal");
+    }
+
+    #[tokio::test]
+    async fn balance_never_adds_hours_to_dollars() {
+        // Committed volume and prepaid credit are both "balances" but are not
+        // the same quantity. Summing them would invent a number.
+        let server = balance_server(ResponseTemplate::new(200).set_body_json(json!({
+            "balances": [
+                { "balance_id": "b-1", "amount": 10.0, "units": "usd" },
+                { "balance_id": "b-2", "amount": 40.0, "units": "hour" }
+            ]
+        })))
+        .await;
+
+        let balance = health_provider(&server).balance().await.expect("balance");
+        assert_eq!(balance.amount, 10.0);
+        assert_eq!(balance.units, "usd");
+    }
+
+    /// A working transcription key is routinely issued without `billing:read`.
+    /// Reporting that as "rejected the API key" would send the user to replace
+    /// a key that dictates perfectly well, and its replacement would fail the
+    /// same way.
+    #[tokio::test]
+    async fn a_key_without_the_billing_scope_names_the_scope_not_the_key() {
+        let server = balance_server(ResponseTemplate::new(403).set_body_json(json!({
+            "category": "INSUFFICIENT_PERMISSIONS",
+            "message": "Your account does not have the required scope."
+        })))
+        .await;
+
+        let error = health_provider(&server)
+            .balance()
+            .await
+            .expect_err("403 is an error");
+        let message = error.user_message();
+        assert!(
+            message.contains("billing:read"),
+            "the remedy is a scope, not a new key: {message}"
+        );
+        assert!(
+            !message.contains("rejected"),
+            "must not blame the key, which still transcribes: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn balance_without_a_key_is_unconfigured() {
+        let server = balance_server(ResponseTemplate::new(200)).await;
+        let p = DeepgramProvider::new(DeepgramConfig::default().with_base_url(server.uri()))
+            .with_credential_store(empty_store());
+
+        assert_eq!(
+            p.balance().await,
+            Err(ProviderError::NotConfigured {
+                provider: "Deepgram"
+            })
+        );
     }
 }
