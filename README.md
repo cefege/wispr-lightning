@@ -39,7 +39,7 @@ Setup requires a Deepgram API key. The key is saved locally and write-only in th
 
 ## Install
 
-Download the latest release: `.dmg` for macOS 13+, `.msi` or `.exe` for Windows 10/11.
+Download the latest release: `.dmg` for macOS 13+, `.msi` or `.exe` for Windows 10/11. The Windows NSIS installer is per-user — it installs to `%LOCALAPPDATA%\Wispr Lightning` and needs no administrator rights.
 
 ### First-launch permissions
 
@@ -74,6 +74,31 @@ cargo install cargo-xwin
 rustup target add x86_64-pc-windows-msvc
 cargo xwin check -p wl-platform --target x86_64-pc-windows-msvc
 ```
+
+### Building on Windows without administrator rights
+
+Visual Studio Build Tools requires elevation, so on a locked-down machine fetch a portable
+MSVC toolchain instead. Node and pnpm come from the plain ZIP distribution, and `rustup-init`
+installs per-user by default.
+
+```bat
+curl -fsSL -o node.zip https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip
+tar -xf node.zip
+curl -fsSL -o rustup-init.exe https://win.rustup.rs/x86_64
+rustup-init.exe -y --default-toolchain stable-x86_64-pc-windows-msvc --profile minimal
+
+:: portable MSVC + Windows SDK, no installer, no elevation
+curl -fsSL -o portable-msvc.py https://gist.githubusercontent.com/mmozeiko/7f3162ec2988e81e56d5c4e22cde9977/raw/portable-msvc.py
+python portable-msvc.py --accept-license --target x64
+call msvc\setup_x64.bat
+
+npm install -g pnpm@10
+pnpm --dir ui install
+pnpm dlx @tauri-apps/cli@2.11.1 build --bundles nsis
+```
+
+`setup_x64.bat` puts `cl.exe` and `link.exe` on `PATH` ahead of the `link.exe` that ships with
+Git for Windows, which would otherwise be picked first and fail the link.
 
 ## Layout
 

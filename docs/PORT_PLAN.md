@@ -75,10 +75,13 @@ On load, settings preserve supported values and remove retired provider/auth/Pol
 | Rust lint | `cargo clippy --workspace --all-targets -- -D warnings` |
 | Frontend types/build | `pnpm check` and `pnpm build` — 303 files, 0 errors/warnings |
 | Windows compile | `cargo xwin check --workspace --all-targets --target x86_64-pc-windows-msvc` |
+| Windows native build | Built on Windows 11 with rustc 1.97.1 and a portable MSVC 14.51 / Windows SDK toolchain; `cargo test --workspace` — 458 tests passed, 0 failed |
+| Windows bundle | Tauri 2.11 NSIS bundle `Wispr Lightning_2.0.0_x64-setup.exe`, `installMode: currentUser` |
+| Windows install smoke | Silent per-user install to `%LOCALAPPDATA%\Wispr Lightning`; launched binary applied SQLite migrations 1–2, installed the global keyboard hook, reported Microphone `Granted`, opened a WASAPI capture stream on hotkey, and completed onboarding with a saved Deepgram key |
 | macOS bundle | Tauri 2.11 app bundle built from the production frontend and release Rust binary |
 | macOS install smoke | Installed binary launched from `/Applications`; startup, migrations, permission checks, hotkey setup, and spool recovery observed in the application log |
 
-Windows runtime behavior still requires a smoke run on Windows hardware. Cross-compilation proves type and build compatibility, not OS permission dialogs, global-input delivery, UI Automation behavior, or installer policy.
+Windows text injection into a third-party app and screen-context OCR are still unexercised; the smoke run covered startup, permissions, hotkey delivery, and audio capture.
 
 ## Release procedure
 

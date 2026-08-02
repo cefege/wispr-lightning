@@ -311,6 +311,13 @@ impl AppState {
     /// toggle that silently turns itself back off looks like a broken feature.
     pub fn apply_launch_at_login(&self, enabled: bool) {
         let manager = self.app.autolaunch();
+        // A no-op is not a failure. On Windows `disable()` deletes the
+        // `HKCU\…\Run` value and reports "file not found" when it was never
+        // written, so applying the default-off setting at startup would
+        // otherwise raise an error toast for a state that is already correct.
+        if manager.is_enabled().unwrap_or(false) == enabled {
+            return;
+        }
         let result = if enabled {
             manager.enable()
         } else {
