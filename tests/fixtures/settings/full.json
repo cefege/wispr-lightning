@@ -1,0 +1,64 @@
+{
+  "aiFormatting" : false,
+  "autoCleanupLevel" : "heavy",
+  "autoLearnWords" : false,
+  "autoPolish" : true,
+  "commandModeEnabled" : false,
+  "creatorMode" : true,
+  "emailAutoSignature" : true,
+  "emailSignatureOption" : "spoken_with_lightning",
+  "enableSounds" : false,
+  "hotkeyKeyCode" : 62,
+  "hotkeyKeyCodes" : [
+    55,
+    58
+  ],
+  "hotkeyLabel" : "Right Control",
+  "hotkeyLabels" : [
+    "Left Command",
+    "Left Option"
+  ],
+  "hotkeyPaused" : true,
+  "hyperlinkOn" : true,
+  "keepMicrophoneActive" : true,
+  "languages" : [
+    "en",
+    "fr",
+    "de"
+  ],
+  "launchAtLogin" : true,
+  "micDeviceName" : "Yeti Stereo Microphone",
+  "micDeviceUID" : "AppleUSBAudioEngine:Blue:Yeti Stereo Microphone:1",
+  "muteMusic" : true,
+  "naturalModeEnabled" : true,
+  "naturalModeSpeed" : "expert",
+  "personalizationStyles" : {
+    "email" : "concise",
+    "other" : "verbose",
+    "personal" : "casual",
+    "work" : "formal"
+  },
+  "polishEnabled" : true,
+  "polishHotkeyKeyCodes" : [
+    61
+  ],
+  "polishHotkeyLabels" : [
+    "Right Option"
+  ],
+  "polishInstructions" : {
+    "Add structure for readability" : false,
+    "Clarify main point" : true,
+    "Maintain your tone" : false,
+    "Make more concise" : false,
+    "Refine phrasing for impact" : true,
+    "Reorder for readability" : false,
+    "Reword for clarity" : false
+  },
+  "selectedSoundPack" : "subtle",
+  "shareUsageData" : true,
+  "showInDock" : true,
+  "styleDetectionEnabled" : false,
+  "useAccessibilityContext" : false,
+  "useScreenContext" : true,
+  "verboseLogging" : true
+}

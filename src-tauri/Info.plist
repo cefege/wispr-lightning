@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Merged with the Info.plist the Tauri CLI generates. -->
+
+	<!-- Menu-bar-only by default. The "Show in Dock" setting flips the
+	     activation policy to Regular at runtime; starting as an accessory
+	     avoids a Dock icon flashing during launch. -->
+	<key>LSUIElement</key>
+	<true/>
+
+	<!-- Required. Without this key TCC kills the process the moment it
+	     touches the microphone: it is not a recoverable denial. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Wispr Lightning needs microphone access to record your voice for dictation.</string>
+
+	<!-- Inserting transcribed text into the app you are working in. -->
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Wispr Lightning needs automation access to pause and resume music while you dictate.</string>
+
+	<!-- Optional screen-context feature: reads on-screen text so dictation
+	     matches the style of what you are writing in. -->
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Wispr Lightning can read on-screen text to format your dictation to match the app you are writing in.</string>
+</dict>
+</plist>

@@ -1,0 +1,1 @@
+../../../Sources/WisprLightning/Models/DictionaryEntry.swift

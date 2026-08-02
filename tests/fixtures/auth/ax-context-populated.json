@@ -1,0 +1,70 @@
+{
+  "access_token" : "fixture-access-token",
+  "app" : "other",
+  "cleanup_level" : "light",
+  "command_mode" : true,
+  "context" : {
+    "app" : {
+      "bundle_id" : "com.apple.Notes",
+      "name" : "Notes",
+      "type" : "other",
+      "url" : ""
+    },
+    "ax_context" : [
+      "Dear Alice,",
+      "\n\nThanks for the "
+    ],
+    "content_text" : "",
+    "dictionary_context" : [
+
+    ],
+    "dictionary_replacements" : {
+
+    },
+    "dictionary_snippets" : {
+
+    },
+    "file_names" : [
+
+    ],
+    "ocr_context" : [
+
+    ],
+    "textbox_contents" : {
+
+    },
+    "user_first_name" : "Mike",
+    "user_last_name" : "Chen",
+    "variable_names" : [
+
+    ]
+  },
+  "debug_mode" : false,
+  "hyperlink_on" : false,
+  "job_selectors" : [
+
+  ],
+  "language" : [
+    "en"
+  ],
+  "metadata" : {
+    "client_platform" : "darwin",
+    "client_version" : "1.4.549",
+    "environment" : "PRODUCTION",
+    "session_id" : "<SESSION_ID>",
+    "transcript_entity_uuid" : "<TRANSCRIPT_UUID>"
+  },
+  "personalization_style_settings" : {
+    "email" : "default",
+    "other" : "default",
+    "personal" : "default",
+    "work" : "default"
+  },
+  "pipeline" : [
+    "transcribe",
+    "format"
+  ],
+  "prefix_is_written" : true,
+  "type" : "auth",
+  "use_staging_baseten" : false
+}

@@ -1,0 +1,13 @@
+{
+  "custom_prompt" : null,
+  "instructions" : {
+    "Add structure for readability" : true,
+    "Maintain your tone" : true,
+    "Make more concise" : true,
+    "Reorder for readability" : true,
+    "Reword for clarity" : true
+  },
+  "provider_config" : null,
+  "selected_text" : "so basically what i wanted to say is that the thing is broken",
+  "writing_samples" : null
+}

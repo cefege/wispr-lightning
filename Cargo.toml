@@ -1,0 +1,52 @@
+[workspace]
+resolver = "2"
+members = ["crates/wl-core", "crates/wl-providers", "crates/wl-platform", "src-tauri"]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2021"
+rust-version = "1.82"
+license = "LicenseRef-SourceAvailable"
+repository = "https://github.com/cefege/wispr-lightning"
+
+[workspace.dependencies]
+wl-core = { path = "crates/wl-core" }
+wl-providers = { path = "crates/wl-providers" }
+wl-platform = { path = "crates/wl-platform" }
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
+async-trait = "0.1"
+parking_lot = "0.12"
+crossbeam-channel = "0.5"
+rusqlite = { version = "0.40", features = ["bundled"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider", "http2"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+
+# Pinned to 0.61 to match the version Tauri 2.11 links: a different major
+# gives us an incompatible `HWND` type across the crate boundary.
+windows = "0.61"
+# `#[implement]` expands to absolute `::windows_core::` paths, so any crate
+# that implements a COM interface needs windows-core in scope directly — and
+# at the same 0.61 the umbrella crate uses, or the generated `IUnknownImpl`
+# comes from a different copy of the trait than the one the vtable wants.
+windows-core = "0.61"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+objc2-core-foundation = "0.3"
+objc2-application-services = "0.3"
+objc2-core-graphics = "0.3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

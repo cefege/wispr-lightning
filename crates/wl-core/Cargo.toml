@@ -1,0 +1,20 @@
+[package]
+name = "wl-core"
+description = "Platform- and UI-agnostic domain logic for Wispr Lightning: settings, storage, audio framing, and the recording state machine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+rusqlite.workspace = true
+parking_lot.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

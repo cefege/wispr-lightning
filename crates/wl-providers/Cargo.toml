@@ -1,0 +1,27 @@
+[package]
+name = "wl-providers"
+description = "Deepgram streaming speech-to-text provider and credential storage."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+wl-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+rustls.workspace = true
+form_urlencoded = "1"
+
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "net", "test-util"] }
+uuid.workspace = true
+wiremock = "0.6"

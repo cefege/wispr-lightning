@@ -1,0 +1,12 @@
+{
+  "chunk_count" : 3,
+  "chunk_size" : 500,
+  "final_chunk_packets" : 1,
+  "positions" : [
+    0,
+    500,
+    1000
+  ],
+  "source_pcm" : "pcm/input-1001.pcm",
+  "total_packets" : 1001
+}

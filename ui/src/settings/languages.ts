@@ -1,0 +1,128 @@
+/**
+ * The dictation language table, in the Swift app's display order.
+ *
+ * Order is load-bearing twice over: the picker list renders in it, and so do
+ * the selected-language chips, because the Swift implementation filtered a
+ * `Set` through this master array rather than tracking selection order
+ * (ui-spec 3.5, MATRIX SET-046).
+ *
+ * Transcribed verbatim from `docs/parity/ui-spec.md`. Note the prose there
+ * says "101 rows" while the enumerated table has 104 entries; the enumeration
+ * is what the Swift source listed, so the enumeration wins.
+ */
+
+export interface Language {
+  code: string;
+  name: string;
+  flag: string;
+}
+
+export const LANGUAGES: readonly Language[] = [
+  { code: "en", name: "English", flag: "🇺🇸" },
+  { code: "engb", name: "English — British", flag: "🇬🇧" },
+  { code: "zh", name: "Chinese — Traditional (繁體中文)", flag: "🇹🇼" },
+  { code: "zhcn", name: "Chinese — Simplified (简体中文)", flag: "🇨🇳" },
+  { code: "de", name: "German (Deutsch)", flag: "🇩🇪" },
+  { code: "dech", name: "German — Swiss (Deutsch)", flag: "🇨🇭" },
+  { code: "es", name: "Spanish (Español)", flag: "🇪🇸" },
+  { code: "ru", name: "Russian (Русский)", flag: "🇷🇺" },
+  { code: "ko", name: "Korean (한국어)", flag: "🇰🇷" },
+  { code: "fr", name: "French (Français)", flag: "🇫🇷" },
+  { code: "ja", name: "Japanese (日本語)", flag: "🇯🇵" },
+  { code: "pt", name: "Portuguese (Português)", flag: "🇧🇷" },
+  { code: "tr", name: "Turkish (Türkçe)", flag: "🇹🇷" },
+  { code: "pl", name: "Polish (Polski)", flag: "🇵🇱" },
+  { code: "ca", name: "Catalan (Català)", flag: "🇪🇸" },
+  { code: "nl", name: "Dutch (Nederlands)", flag: "🇳🇱" },
+  { code: "ar", name: "Arabic (العربية)", flag: "🇸🇦" },
+  { code: "sv", name: "Swedish (Svenska)", flag: "🇸🇪" },
+  { code: "it", name: "Italian (Italiano)", flag: "🇮🇹" },
+  { code: "id", name: "Indonesian (Bahasa)", flag: "🇮🇩" },
+  { code: "hi", name: "Hindi (हिन्दी)", flag: "🇮🇳" },
+  { code: "hien", name: "Hinglish", flag: "🇮🇳" },
+  { code: "fi", name: "Finnish (Suomi)", flag: "🇫🇮" },
+  { code: "vi", name: "Vietnamese (Tiếng Việt)", flag: "🇻🇳" },
+  { code: "he", name: "Hebrew (עברית)", flag: "🇮🇱" },
+  { code: "uk", name: "Ukrainian (Українська)", flag: "🇺🇦" },
+  { code: "el", name: "Greek (Ελληνικά)", flag: "🇬🇷" },
+  { code: "ms", name: "Malay (Bahasa Melayu)", flag: "🇲🇾" },
+  { code: "cs", name: "Czech (Čeština)", flag: "🇨🇿" },
+  { code: "ro", name: "Romanian (Română)", flag: "🇷🇴" },
+  { code: "da", name: "Danish (Dansk)", flag: "🇩🇰" },
+  { code: "hu", name: "Hungarian (Magyar)", flag: "🇭🇺" },
+  { code: "ta", name: "Tamil (தமிழ்)", flag: "🇮🇳" },
+  { code: "no", name: "Norwegian (Norsk)", flag: "🇳🇴" },
+  { code: "th", name: "Thai (ไทย)", flag: "🇹🇭" },
+  { code: "ur", name: "Urdu (اردو)", flag: "🇵🇰" },
+  { code: "hr", name: "Croatian (Hrvatski)", flag: "🇭🇷" },
+  { code: "bg", name: "Bulgarian (Български)", flag: "🇧🇬" },
+  { code: "lt", name: "Lithuanian (Lietuvių)", flag: "🇱🇹" },
+  { code: "la", name: "Latin (Latina)", flag: "🌍" },
+  { code: "mi", name: "Maori", flag: "🇳🇿" },
+  { code: "ml", name: "Malayalam (മലയാളം)", flag: "🇮🇳" },
+  { code: "cy", name: "Welsh (Cymraeg)", flag: "🏴󠁧󠁢󠁷󠁬󠁳󠁿" },
+  { code: "sk", name: "Slovak (Slovenčina)", flag: "🇸🇰" },
+  { code: "te", name: "Telugu (తెలుగు)", flag: "🇮🇳" },
+  { code: "fa", name: "Persian (فارسی)", flag: "🇮🇷" },
+  { code: "lv", name: "Latvian (Latviešu)", flag: "🇱🇻" },
+  { code: "bn", name: "Bengali (বাংলা)", flag: "🇧🇩" },
+  { code: "sr", name: "Serbian (Српски)", flag: "🇷🇸" },
+  { code: "az", name: "Azerbaijani (Azərbaycan)", flag: "🇦🇿" },
+  { code: "sl", name: "Slovenian (Slovenščina)", flag: "🇸🇮" },
+  { code: "kn", name: "Kannada (ಕನ್ನಡ)", flag: "🇮🇳" },
+  { code: "et", name: "Estonian (Eesti)", flag: "🇪🇪" },
+  { code: "mk", name: "Macedonian (Македонски)", flag: "🇲🇰" },
+  { code: "br", name: "Breton (Brezhoneg)", flag: "🇫🇷" },
+  { code: "eu", name: "Basque (Euskara)", flag: "🇪🇸" },
+  { code: "is", name: "Icelandic (Íslenska)", flag: "🇮🇸" },
+  { code: "hy", name: "Armenian (Հայերեն)", flag: "🇦🇲" },
+  { code: "ne", name: "Nepali (नेपाली)", flag: "🇳🇵" },
+  { code: "mn", name: "Mongolian (Монгол)", flag: "🇲🇳" },
+  { code: "bs", name: "Bosnian (Bosanski)", flag: "🇧🇦" },
+  { code: "kk", name: "Kazakh (Қазақша)", flag: "🇰🇿" },
+  { code: "sq", name: "Albanian (Shqip)", flag: "🇦🇱" },
+  { code: "sw", name: "Swahili (Kiswahili)", flag: "🇹🇿" },
+  { code: "gl", name: "Galician (Galego)", flag: "🇪🇸" },
+  { code: "mr", name: "Marathi (मराठी)", flag: "🇮🇳" },
+  { code: "pa", name: "Punjabi (ਪੰਜਾਬੀ)", flag: "🇮🇳" },
+  { code: "si", name: "Sinhala (සිංහල)", flag: "🇱🇰" },
+  { code: "km", name: "Khmer (ខ្មែរ)", flag: "🇰🇭" },
+  { code: "sn", name: "Shona (chiShona)", flag: "🇿🇼" },
+  { code: "yo", name: "Yoruba", flag: "🇳🇬" },
+  { code: "so", name: "Somali (Soomaali)", flag: "🇸🇴" },
+  { code: "af", name: "Afrikaans", flag: "🇿🇦" },
+  { code: "oc", name: "Occitan", flag: "🌍" },
+  { code: "ka", name: "Georgian (ქართული)", flag: "🇬🇪" },
+  { code: "be", name: "Belarusian (Беларуская)", flag: "🇧🇾" },
+  { code: "tg", name: "Tajik (Тоҷикӣ)", flag: "🇹🇯" },
+  { code: "sd", name: "Sindhi (سنڌي)", flag: "🇵🇰" },
+  { code: "gu", name: "Gujarati (ગુજરાતી)", flag: "🇮🇳" },
+  { code: "am", name: "Amharic (አማርኛ)", flag: "🇪🇹" },
+  { code: "yi", name: "Yiddish (ייִדיש)", flag: "🌍" },
+  { code: "lo", name: "Lao (ລາວ)", flag: "🇱🇦" },
+  { code: "uz", name: "Uzbek (Oʻzbek)", flag: "🇺🇿" },
+  { code: "fo", name: "Faroese (Føroyskt)", flag: "🇫🇴" },
+  { code: "ht", name: "Haitian Creole (Kreyòl Ayisyen)", flag: "🇭🇹" },
+  { code: "ps", name: "Pashto (پښتو)", flag: "🇦🇫" },
+  { code: "tk", name: "Turkmen", flag: "🇹🇲" },
+  { code: "nn", name: "Nynorsk", flag: "🇳🇴" },
+  { code: "mt", name: "Maltese (Malti)", flag: "🇲🇹" },
+  { code: "sa", name: "Sanskrit (संस्कृतम्)", flag: "🇮🇳" },
+  { code: "lb", name: "Luxembourgish (Lëtzebuergesch)", flag: "🇱🇺" },
+  { code: "my", name: "Myanmar (မြန်မာ)", flag: "🇲🇲" },
+  { code: "bo", name: "Tibetan (བོད་སྐད)", flag: "🌍" },
+  { code: "tl", name: "Tagalog", flag: "🇵🇭" },
+  { code: "mg", name: "Malagasy", flag: "🇲🇬" },
+  { code: "as", name: "Assamese (অসমীয়া)", flag: "🇮🇳" },
+  { code: "tt", name: "Tatar (Татар)", flag: "🇷🇺" },
+  { code: "haw", name: "Hawaiian (ʻŌlelo Hawaiʻi)", flag: "🇺🇸" },
+  { code: "ln", name: "Lingala", flag: "🇨🇩" },
+  { code: "ha", name: "Hausa", flag: "🇳🇬" },
+  { code: "ba", name: "Bashkir (Башҡортса)", flag: "🇷🇺" },
+  { code: "jv", name: "Javanese (Basa Jawa)", flag: "🇮🇩" },
+  { code: "su", name: "Sundanese (Basa Sunda)", flag: "🇮🇩" },
+  { code: "yue", name: "Cantonese (粵語)", flag: "🇭🇰" },
+];
+
+/** The pseudo-code that means "let the server decide". Never a real language. */
+export const AUTO_CODE = "auto";

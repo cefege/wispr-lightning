@@ -1,106 +1,115 @@
 # Wispr Lightning
 
-> **[Download the latest release](https://github.com/cefege/wispr-lightning/releases/latest)** — grab `Wispr.Lightning.app.zip`, unzip, drag to `/Applications`, and launch. Grant Accessibility, Input Monitoring, and Microphone permissions when prompted. Requires macOS 13+ on Apple Silicon.
+Push-to-talk dictation for **macOS and Windows**. Hold a key, speak, release — the transcribed text lands at your cursor in whatever app you were already using.
 
-I use [Wispr Flow](https://wispr.com) for voice dictation every day. It's great software — but it runs on Electron, which means it ships a full Chromium browser to display a menu bar icon. On my MacBook Air with 8 GB of RAM, it would crash under real workloads (Chrome, VS Code, Claude Code, Slack all running).
+Originally a native Swift macOS app; now a Rust + Tauri v2 desktop app with one transcription path: Deepgram live streaming.
 
-I ordered a new MacBook to fix the problem. Then I got annoyed that a menu bar app was the reason I needed new hardware. So while the MacBook was shipping, I rewrote Wispr Flow from scratch in native Swift. The rewrite was done before the laptop arrived.
-
-Same transcription backend. Same features. **9× less RAM. 185× smaller binary. One process instead of ten.**
-
-## Performance
-
-Measured on MacBook M5 (16 GB RAM, macOS 15.3), both apps idle.
-
-| Metric | Wispr Lightning | Wispr Flow | Difference |
-|---|---|---|---|
-| **RAM (idle)** | 59 MB | 546 MB | **9× less** |
-| **CPU (idle)** | ~0% | ~21% | |
-| **Processes** | 1 | 10 | **10× fewer** |
-| **App size** | 2.5 MB | 462 MB | **185× smaller** |
-
-Wispr Flow spawns 10 OS processes at launch — 4 renderers, GPU compositor, plugin helper, and multiple helper processes. Together they consume 546 MB of RAM doing nothing.
-
-Wispr Lightning is a single native process. The OS parks it at 0% CPU between interactions.
-
-![Activity Monitor — Wispr Lightning vs Wispr Flow](wispr-lightning-vs-flow.png)
-
-## Demo
-
-[![Wispr Lightning demo](demo_thumbnail.jpg)](https://www.loom.com/share/e2c4c33d832441fb9ee2383b0305fe54)
-
-## How it works
+## What it does
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Hotkey pressed                                     │
-│  ├─ Pause music (Apple Music / Spotify)             │
-│  ├─ Start AVAudioEngine recording                   │
-│  ├─ Show recording overlay                          │
-│  │                                                  │
-│  Hotkey released                                    │
-│  ├─ Capture active app context (bundle ID, window)  │
-│  ├─ OCR visible screen text for formatting context  │
-│  ├─ Stream audio → Wispr transcription API (WSS)    │
-│  ├─ [Optional] AI polish pass with custom prompt    │
-│  ├─ Inject text at cursor via Accessibility API     │
-│  ├─ Save to local history (SQLite)                  │
-│  └─ Resume music                                    │
-└─────────────────────────────────────────────────────┘
+Hotkey pressed
+  ├─ Capture the frontmost app and optional text/screen context
+  ├─ Pause music
+  ├─ Open a Deepgram WebSocket
+  └─ Stream 16 kHz mono PCM while recording
+
+Hotkey released
+  ├─ Finalize the Deepgram transcript
+  ├─ Apply local replacements, snippets, capitalization, and punctuation
+  ├─ Insert at the cursor
+  ├─ Save to local SQLite history
+  └─ Resume music
 ```
 
-The core pipeline: record → transcribe → format → inject. Context-aware formatting reads the active app and on-screen text via OCR so dictated text matches the style of what you're writing in — code comments get formatted differently than emails.
+**Push-to-talk, tap-to-lock.** Hold to dictate. Tap twice quickly and it locks hands-free until you press again. Releasing after a real hold waits half a second before stopping, so the tail of your sentence is never clipped.
 
-**~6,400 lines of Swift. No frameworks beyond Foundation and AppKit. One binary.**
+**Contextual recognition.** With Nova 3, dictionary phrases and distinctive terms from the focused app, field text, and optional screen OCR are sent as Deepgram keyterm hints.
 
-## Features
+**Your own dictionary.** Vocabulary phrases bias recognition; replacements and snippets rewrite the output. Words the recognizer gets wrong but the formatter fixes are learned automatically.
 
-- **Push-to-talk dictation** — hold a configurable hotkey to record, release to transcribe and inject text
-- **Context-aware formatting** — uses the active app and on-screen text (via OCR) to intelligently format transcriptions
-- **Auto-polish** — optionally rewrites transcriptions with a custom AI prompt before injecting
-- **Processing indicator** — overlay transitions from Recording → Processing → Done
-- **Music auto-pause** — pauses Apple Music / Spotify during recording, resumes after
-- **Transcription history** — browse and search past dictations in local SQLite
-- **Menu bar app** — lives in the status bar, zero UI clutter
+**Local application data.** History, notes, dictionary, settings, and the Deepgram key stay in the app data folder. The app never opens macOS Keychain or Windows Credential Manager.
+
+## Deepgram
+
+Wispr Lightning streams headerless 16 kHz mono PCM to Deepgram's `/v1/listen` WebSocket. Nova 3 is the default model; Nova 2 remains selectable. Fixed-language, multilingual, and streaming auto-detect modes are available.
+
+Deepgram's `smart_format` and `dictation` options provide basic formatting and spoken punctuation. The app then applies dictionary replacements and snippets locally, followed by sentence capitalization and terminal punctuation. Nova 3 can also receive up to 500 tokens of contextual keyterm hints.
+
+Setup requires a Deepgram API key. The key is saved locally and write-only in the UI: after saving, settings display a masked state rather than revealing it.
 
 ## Install
 
-**Option A — Download pre-built app (recommended):**
+Download the latest release: `.dmg` for macOS 13+, `.msi` or `.exe` for Windows 10/11.
 
-Download `Wispr.Lightning.app.zip` from the [latest release](https://github.com/cefege/wispr-lightning/releases/latest), unzip, and drag to `/Applications`. If Gatekeeper blocks it: `xattr -cr "/Applications/Wispr Lightning.app"`.
+### First-launch permissions
 
-**Option B — Build from source:**
+Setup requests each required permission in sequence and cannot be skipped. The app advances only
+after the operating system reports that the current request is granted.
+
+**macOS** — approve these in System Settings → Privacy & Security:
+- **Microphone** — required to record dictation
+- **Accessibility** — required to insert text into other apps
+- **Input Monitoring** — required for the global hotkey
+- **Screen Recording** — required while screen context is enabled
+
+**Windows** — enable *Settings → Privacy & security → Microphone → Let desktop apps access your microphone*. There is no per-app prompt for desktop apps; setup links you straight to that page if it detects a denial.
+
+Settings → Privacy shows every permission's live status with a button to request or open the relevant pane. If the hotkey ever stops working, that page tells you why.
+
+## Build from source
+
+Requires Rust 1.85+, Node 20+, and pnpm.
 
 ```bash
-./install.sh
+pnpm --dir ui install
+cargo tauri dev      # run
+cargo tauri build    # package
 ```
 
-Builds a release binary, bundles it into `Wispr Lightning.app`, and copies it to `/Applications`.
-
-### Permissions
-
-After first launch, grant these in **System Settings → Privacy & Security**:
-
-- **Accessibility** — for text injection into other apps
-- **Input Monitoring** — for global hotkey capture
-- **Microphone** — prompted automatically on first recording
-
-## Build
+### Cross-compiling to Windows from macOS
 
 ```bash
-swift build             # debug
-swift build -c release  # release
+brew install llvm
+cargo install cargo-xwin
+rustup target add x86_64-pc-windows-msvc
+cargo xwin check -p wl-platform --target x86_64-pc-windows-msvc
 ```
+
+## Layout
+
+```
+crates/wl-core/       settings · SQLite · audio framing · recording state machine · text
+crates/wl-providers/  Deepgram streaming · credential storage · local post-processing
+crates/wl-platform/   hotkeys · capture · injection · OCR · media — macOS + Windows
+src-tauri/            tray · windows · overlay · IPC · dictation pipeline
+ui/                   Svelte 5 + Vite — settings, history, notes, dictionary, overlay
+```
+
+`wl-core` and `wl-providers` touch no OS APIs, so the bulk of the behaviour is testable on any host.
+
+## Testing
+
+```bash
+cargo test --workspace
+pnpm --dir ui check
+cargo run -p wl-platform --example probe
+```
+
+The verification layers are:
+
+1. **Unit and contract tests** — recording state transitions, settings migration, SQLite stores, text transforms, Deepgram URL construction, keyterms, WebSocket streaming, retry classification, and local post-processing.
+2. **Mock Deepgram server tests** — streaming audio, finalization, keep-alive, malformed frames, authentication failures, timeouts, and reconnect behavior.
+3. **Platform probe** — microphones, hotkeys, injection, OCR, media control, and permissions on the real OS.
+4. **End-to-end smoke** — the installed binary, including the invariant that the recording overlay never takes focus from the app receiving dictation.
 
 ## Requirements
 
-- macOS 13+
-- Swift 5.9+
-- A [Wispr](https://wispr.com) account (works with the free tier)
+- macOS 13+ (Apple Silicon or Intel) or Windows 10/11
+- A [Deepgram](https://deepgram.com) API key
 
 ## Disclaimer
 
-This is an independent project. It is not affiliated with, endorsed by, or connected to [Wispr](https://wispr.com) in any way. "Wispr" and "Wispr Flow" are trademarks of their respective owners. A Wispr account is required — the free tier works.
+Independent project. Not affiliated with, endorsed by, or connected to Deepgram or Wispr.
 
 ## License
 

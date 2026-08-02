@@ -1,0 +1,78 @@
+{
+  "app_info" : {
+    "bundle_id" : "com.apple.Notes",
+    "name" : "Notes",
+    "type" : "other",
+    "url" : ""
+  },
+  "ax_context" : [
+
+  ],
+  "dictionary" : null,
+  "ocr_context" : [
+
+  ],
+  "purpose" : "styleDetectionEnabled=true forwards personalizationStyles verbatim.",
+  "session" : {
+    "access_token" : "fixture-access-token",
+    "user_first_name" : "Mike",
+    "user_last_name" : "Chen"
+  },
+  "settings" : {
+    "aiFormatting" : true,
+    "autoCleanupLevel" : "light",
+    "autoLearnWords" : true,
+    "autoPolish" : false,
+    "commandModeEnabled" : true,
+    "creatorMode" : false,
+    "emailAutoSignature" : false,
+    "emailSignatureOption" : "written_with_lightning",
+    "enableSounds" : true,
+    "hotkeyKeyCode" : 59,
+    "hotkeyKeyCodes" : [
+      59
+    ],
+    "hotkeyLabel" : "Left Control",
+    "hotkeyLabels" : [
+      "Left Control"
+    ],
+    "hotkeyPaused" : false,
+    "hyperlinkOn" : false,
+    "keepMicrophoneActive" : false,
+    "languages" : [
+      "en"
+    ],
+    "launchAtLogin" : false,
+    "muteMusic" : false,
+    "naturalModeEnabled" : false,
+    "naturalModeSpeed" : "normal",
+    "personalizationStyles" : {
+      "email" : "concise",
+      "other" : "verbose",
+      "personal" : "casual",
+      "work" : "formal"
+    },
+    "polishEnabled" : false,
+    "polishHotkeyKeyCodes" : [
+      62
+    ],
+    "polishHotkeyLabels" : [
+      "Right Control"
+    ],
+    "polishInstructions" : {
+      "Add structure for readability" : true,
+      "Clarify main point" : false,
+      "Maintain your tone" : true,
+      "Make more concise" : true,
+      "Refine phrasing for impact" : false,
+      "Reorder for readability" : true,
+      "Reword for clarity" : true
+    },
+    "shareUsageData" : false,
+    "showInDock" : false,
+    "styleDetectionEnabled" : true,
+    "useAccessibilityContext" : true,
+    "useScreenContext" : false,
+    "verboseLogging" : false
+  }
+}

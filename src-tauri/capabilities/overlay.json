@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "overlay",
+  "description": "The recording overlay, which is on screen more than anything else and renders no user content. It only listens for overlay:state / overlay:elapsed and calls overlay_action, and commands declared by this crate are not permission-gated — so this is everything it needs.",
+  "windows": ["overlay"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

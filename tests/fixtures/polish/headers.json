@@ -1,0 +1,18 @@
+{
+  "body_bytes" : 310,
+  "client_set_headers" : {
+    "Authorization" : "<TOKEN>",
+    "Cache-Control" : "no-cache, no-store, must-revalidate",
+    "Content-Type" : "application/json"
+  },
+  "method" : "POST",
+  "notes" : [
+    "Authorization carries the raw access token with no \"Bearer \" prefix; redacted here to <TOKEN>.",
+    "Captured from the real PolishService through a registered URLProtocol, not transcribed.",
+    "body_bytes is the length of the client's own serialisation, whose key order is unspecified; request.json is the same object re-serialised with sorted keys."
+  ],
+  "transport_added_headers" : {
+    "Content-Length" : "310"
+  },
+  "url" : "https://api.wisprflow.ai/llm/polish_text"
+}

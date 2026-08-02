@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Wispr Lightning</title>
+  </head>
+  <!--
+    The pill is authored statically rather than built by script.
+
+    This document lives in a prewarmed window that is ordered in and out many
+    times per session (OVL-041), so the cost that matters is the first paint
+    after a reload, not the cost of a state change. Static markup puts the
+    correct initial state on screen before any module has executed — including
+    all eighteen VU bars at their 3px resting height, which is exactly what the
+    strip must show at silence anyway.
+
+    Nothing here is focusable except the four buttons, and there is no autofocus
+    and no tabindex: if this document ever took keyboard focus the app being
+    dictated into would lose it and the transcript would land in the wrong
+    window.
+  -->
+  <body>
+    <div id="pill" class="pill" data-state="hidden" data-warning="0">
+      <!--
+        The level meter (v2-ui-spec §1.4). Eighteen bars, oldest on the left:
+        this is a scrolling history of the last eighteen samples, not a
+        spectrum. In Recording and Locked it is the *entire* visual — there is
+        no dot and no label.
+      -->
+      <span id="vu" class="vu" aria-hidden="true"
+        ><i class="vu-bar"></i><i class="vu-bar"></i><i class="vu-bar"></i><i class="vu-bar"></i
+        ><i class="vu-bar"></i><i class="vu-bar"></i><i class="vu-bar"></i><i class="vu-bar"></i
+        ><i class="vu-bar"></i><i class="vu-bar"></i><i class="vu-bar"></i><i class="vu-bar"></i
+        ><i class="vu-bar"></i><i class="vu-bar"></i><i class="vu-bar"></i><i class="vu-bar"></i
+        ><i class="vu-bar"></i><i class="vu-bar"></i
+      ></span>
+      <svg id="spinner" class="spinner" viewBox="0 0 16 16" aria-hidden="true">
+        <circle class="spinner-track" cx="8" cy="8" r="6.5" />
+        <circle class="spinner-arc" cx="8" cy="8" r="6.5" />
+      </svg>
+      <span id="label" class="label"></span>
+      <span id="time" class="time"></span>
+      <button id="retry" class="btn btn-bezel" type="button">Retry</button>
+      <button id="save" class="btn btn-bezel" type="button">Save</button>
+      <button id="dismiss" class="btn btn-inline" type="button" aria-label="Dismiss">&#x2715;</button>
+      <!--
+        Outside the flex flow, so revealing it on hover costs no layout shift
+        and cannot nudge the band off centre. Last in the document so it paints
+        above the bars it overlaps (v2-ui-spec §1.6, §1.7).
+      -->
+      <button
+        id="cancel"
+        class="cancel"
+        type="button"
+        title="Cancel recording"
+        aria-label="Cancel recording"
+      >
+        <svg viewBox="0 0 20 20" aria-hidden="true">
+          <!--
+            `xmark.circle.fill`: a disc with the cross knocked *out* of it, so
+            the blurred material shows through the strokes rather than a second
+            colour being painted over them. The mask's black and white are
+            luminance values, not palette colours.
+          -->
+          <mask id="cancel-xmark">
+            <circle cx="10" cy="10" r="9" fill="#fff" />
+            <path
+              d="M6.6 6.6 13.4 13.4M13.4 6.6 6.6 13.4"
+              stroke="#000"
+              stroke-width="1.8"
+              stroke-linecap="round"
+            />
+          </mask>
+          <circle cx="10" cy="10" r="9" fill="currentColor" mask="url(#cancel-xmark)" />
+        </svg>
+      </button>
+    </div>
+    <script type="module" src="/src/overlay/main.ts"></script>
+  </body>
+</html>

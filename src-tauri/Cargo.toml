@@ -1,0 +1,62 @@
+[package]
+name = "wispr-lightning"
+description = "Wispr Lightning: a fast, native push-to-talk dictation app for macOS and Windows."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# Tauri's mobile targets require a cdylib; the desktop binary links the rlib.
+name = "wispr_lightning_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+wl-core.workspace = true
+wl-platform.workspace = true
+wl-providers.workspace = true
+
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+parking_lot.workspace = true
+crossbeam-channel.workspace = true
+
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+tauri-plugin-window-state = "2.4.1"
+
+[dev-dependencies]
+tempfile = "3"
+async-trait.workspace = true
+rusqlite.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+# Not on crates.io. tao has no NSPanel support at all, and only an actual
+# NSPanel with the nonactivating-panel style mask stops a click on the overlay
+# from activating our application and pulling focus off the app being dictated
+# into. It also gets us NSStatusWindowLevel (25); tao's always_on_top is only
+# NSFloatingWindowLevel (3), which does not float over full-screen apps.
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2.1" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+] }

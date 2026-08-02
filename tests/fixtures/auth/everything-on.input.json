@@ -1,0 +1,147 @@
+{
+  "app_info" : {
+    "bundle_id" : "com.tinyspeck.slackmacgap",
+    "name" : "Slack",
+    "type" : "messaging",
+    "url" : ""
+  },
+  "ax_context" : [
+    "Dear Alice,",
+    "\n\nThanks for the "
+  ],
+  "dictionary" : {
+    "context" : [
+      "gpt",
+      "Vocab Term 01",
+      "Vocab Term 02",
+      "Vocab Term 03",
+      "Vocab Term 04",
+      "Vocab Term 05",
+      "Vocab Term 06",
+      "Vocab Term 07",
+      "Vocab Term 08",
+      "Vocab Term 09",
+      "Vocab Term 10",
+      "Vocab Term 11",
+      "Vocab Term 12",
+      "Vocab Term 13",
+      "Vocab Term 14",
+      "Vocab Term 15",
+      "Vocab Term 16",
+      "Vocab Term 17",
+      "Vocab Term 18",
+      "Vocab Term 19",
+      "Vocab Term 20",
+      "Vocab Term 21",
+      "Vocab Term 22",
+      "Vocab Term 23",
+      "Vocab Term 24",
+      "Vocab Term 25",
+      "Vocab Term 26",
+      "Vocab Term 27",
+      "Vocab Term 28",
+      "Vocab Term 29",
+      "Vocab Term 30",
+      "Vocab Term 31",
+      "Vocab Term 32",
+      "Vocab Term 33",
+      "Vocab Term 34",
+      "Vocab Term 35",
+      "Vocab Term 36",
+      "Vocab Term 37",
+      "Vocab Term 38",
+      "Vocab Term 39",
+      "Vocab Term 40",
+      "Vocab Term 41",
+      "Vocab Term 42",
+      "Vocab Term 43",
+      "Vocab Term 44",
+      "Vocab Term 45",
+      "Vocab Term 46",
+      "Vocab Term 47",
+      "Vocab Term 48",
+      "Vocab Term 49"
+    ],
+    "replacements" : {
+      "api" : "API",
+      "cafe" : "café",
+      "gpt" : "GPT",
+      "wispr flow" : "Wispr Flow"
+    },
+    "snippets" : {
+      "addr" : "1 Infinite Loop, Cupertino, CA",
+      "my email" : "mike@example.com",
+      "sig" : "Mike Chen\nWispr Lightning\n+1 555 0100"
+    }
+  },
+  "ocr_context" : [
+    "Inbox — 3 unread",
+    "Compose",
+    "Send"
+  ],
+  "purpose" : "All flags on, both contexts, dictionary attached, three languages.",
+  "session" : {
+    "access_token" : "fixture-access-token",
+    "user_first_name" : "Mike",
+    "user_last_name" : "Chen"
+  },
+  "settings" : {
+    "aiFormatting" : true,
+    "autoCleanupLevel" : "heavy",
+    "autoLearnWords" : true,
+    "autoPolish" : false,
+    "commandModeEnabled" : true,
+    "creatorMode" : true,
+    "emailAutoSignature" : false,
+    "emailSignatureOption" : "written_with_lightning",
+    "enableSounds" : true,
+    "hotkeyKeyCode" : 59,
+    "hotkeyKeyCodes" : [
+      59
+    ],
+    "hotkeyLabel" : "Left Control",
+    "hotkeyLabels" : [
+      "Left Control"
+    ],
+    "hotkeyPaused" : false,
+    "hyperlinkOn" : true,
+    "keepMicrophoneActive" : false,
+    "languages" : [
+      "en",
+      "fr",
+      "de"
+    ],
+    "launchAtLogin" : false,
+    "muteMusic" : false,
+    "naturalModeEnabled" : false,
+    "naturalModeSpeed" : "normal",
+    "personalizationStyles" : {
+      "email" : "concise",
+      "other" : "verbose",
+      "personal" : "casual",
+      "work" : "formal"
+    },
+    "polishEnabled" : false,
+    "polishHotkeyKeyCodes" : [
+      62
+    ],
+    "polishHotkeyLabels" : [
+      "Right Control"
+    ],
+    "polishInstructions" : {
+      "Add structure for readability" : true,
+      "Clarify main point" : false,
+      "Maintain your tone" : true,
+      "Make more concise" : true,
+      "Refine phrasing for impact" : false,
+      "Reorder for readability" : true,
+      "Reword for clarity" : true
+    },
+    "shareUsageData" : false,
+    "showInDock" : false,
+    "styleDetectionEnabled" : true,
+    "useAccessibilityContext" : true,
+    "useScreenContext" : false,
+    "verboseLogging" : false
+  }
+}

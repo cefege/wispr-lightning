@@ -1,0 +1,11 @@
+{
+  "instructions" : [
+    "Add structure for readability",
+    "Maintain your tone",
+    "Make more concise",
+    "Reorder for readability",
+    "Reword for clarity"
+  ],
+  "note" : "PolishService turns the instruction list into a {label: true} map; the list order never reaches the wire.",
+  "selected_text" : "so basically what i wanted to say is that the thing is broken"
+}

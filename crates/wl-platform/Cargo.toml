@@ -1,0 +1,78 @@
+[package]
+name = "wl-platform"
+description = "Platform integration traits (hotkeys, injection, capture, OCR, media) with macOS and Windows implementations."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+wl-core.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+tracing.workspace = true
+crossbeam-channel.workspace = true
+parking_lot.workspace = true
+
+# Audio capture and cue playback.
+cpal = "0.18"
+rubato = "4.0"
+rtrb = "0.3"
+rodio = { version = "0.22", default-features = false, features = ["playback", "wav"] }
+
+# Global hotkeys: the only crate that models a bare-modifier hold, which is the
+# app's default push-to-talk binding. See docs/parity/research-input.md §1.
+handy-keys = "0.3.3"
+enigo = "0.6"
+
+# Per-keystroke jitter for the "natural" typing speed, needed by both
+# platforms' injectors. 0.9 for the `rand::rng()` entry point.
+rand = "0.9"
+
+[dev-dependencies]
+tempfile = "3"
+tracing-subscriber = "0.3"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+objc2-foundation.workspace = true
+objc2-app-kit.workspace = true
+objc2-core-foundation.workspace = true
+objc2-application-services = { workspace = true, features = ["HIServices", "objc2"] }
+objc2-core-graphics.workspace = true
+objc2-vision = "0.3"
+objc2-av-foundation = { version = "0.3", features = ["AVMediaFormat", "AVCaptureDevice", "block2"] }
+block2 = "0.6"
+# The two system-wide HAL property listeners (device list, default input) that
+# cpal registers internally but keeps private. Feature `AudioHardware`.
+objc2-core-audio = { version = "0.3.2", features = ["AudioHardware"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+uiautomation = "0.25"
+windows-core.workspace = true
+windows = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Accessibility",
+  "Win32_UI_Shell",
+  "Win32_System_Threading",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Registry",
+  "Win32_Storage_FileSystem",
+  "Win32_Storage_Xps",
+  "Win32_Graphics_Gdi",
+  "Win32_Media_Audio",
+  "Media_Ocr",
+  "Media_Control",
+  "Graphics_Imaging",
+  "Storage_Streams",
+  "UI_ViewManagement",
+  "Foundation",
+  "Foundation_Collections",
+] }

@@ -1,0 +1,201 @@
+/*
+ * Design tokens.
+ *
+ * The brief was to keep the UI looking standard, so the palette is derived
+ * from each platform's own semantic system colors rather than a house style:
+ * on macOS these are the resolved values of `NSColor.windowBackgroundColor`,
+ * `controlAccentColor` and friends; on Windows they follow the Fluent
+ * neutrals. Both themes flip with `prefers-color-scheme`.
+ *
+ * Everything here is a variable. No component may hard-code a colour, a font
+ * or a radius — that is what keeps two platforms and two appearances from
+ * drifting into four separate designs.
+ */
+
+:root {
+  /* -- Typography ------------------------------------------------------ */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text",
+    "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Consolas", monospace;
+
+  /* macOS text styles, matched to the AppKit values the Swift app used. */
+  --text-title: 15px;
+  --text-headline: 13px;
+  --text-body: 13px;
+  --text-subheadline: 11px;
+  --text-caption: 10px;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* -- Spacing (Theme.Spacing in the Swift app) ------------------------ */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+
+  /* -- Radii ----------------------------------------------------------- */
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-overlay: 18px;
+  --radius-icon: 14px;
+
+  /* -- Motion ---------------------------------------------------------- */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+
+  /* -- Light appearance ------------------------------------------------ */
+  --bg-window: #ececec;
+  --bg-content: #ffffff;
+  --bg-control: #ffffff;
+  --bg-control-hover: #f2f2f2;
+  --bg-sidebar: #f2f2f2;
+  --bg-elevated: #ffffff;
+  --bg-selected: rgba(0, 0, 0, 0.06);
+
+  --text-primary: rgba(0, 0, 0, 0.85);
+  --text-secondary: rgba(0, 0, 0, 0.5);
+  --text-tertiary: rgba(0, 0, 0, 0.26);
+  --text-on-accent: var(--accent-text);
+
+  --border: rgba(0, 0, 0, 0.12);
+  --border-strong: rgba(0, 0, 0, 0.22);
+
+  /* The accent is the one system colour a web view cannot read for itself.
+     Both engines answer the CSS `AccentColor` keyword with a hardcoded blue —
+     WebKit deliberately, against fingerprinting — and both still report `true`
+     from `@supports (color: AccentColor)`, so there is no feature test either.
+     `main.ts` reads the real one over IPC and writes these four onto <html>
+     before mounting; the values here are the fallback for when the OS reports
+     nothing. An inline style outranks both this rule and the dark one below,
+     so the injected set overrides whichever appearance is in force.
+
+     --accent-darker and --accent-lighter are the hover and pressed shades,
+     derived from the accent in Rust rather than mixed here: color-mix() does
+     not exist in Safari 16.1, the oldest WebKit this app supports. The light
+     appearance steps toward black and the dark one toward white, which is the
+     direction each platform's own filled controls move. */
+  --accent: #0a6cff;
+  --accent-text: #ffffff;
+  --accent-darker: #095fe0;
+  --accent-lighter: #629bf8;
+  --accent-hover: var(--accent-darker);
+  --danger: #e5484d;
+  --success: #30a46c;
+  --warning: #f5a524;
+  --recording: #e5484d;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-window: #323232;
+    --bg-content: #1e1e1e;
+    --bg-control: #3a3a3a;
+    --bg-control-hover: #464646;
+    --bg-sidebar: #2a2a2a;
+    --bg-elevated: #2c2c2c;
+    --bg-selected: rgba(255, 255, 255, 0.1);
+
+    --text-primary: rgba(255, 255, 255, 0.92);
+    --text-secondary: rgba(255, 255, 255, 0.55);
+    --text-tertiary: rgba(255, 255, 255, 0.3);
+
+    --border: rgba(255, 255, 255, 0.12);
+    --border-strong: rgba(255, 255, 255, 0.24);
+
+    --accent: #3b82f6;
+    --accent-hover: var(--accent-lighter);
+    --danger: #ff6369;
+    --success: #3dd68c;
+    --warning: #ffb224;
+    --recording: #ff6369;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* Windows uses squarer corners and a slightly larger base size than macOS.
+   Set `data-platform="windows"` on <html> at boot. */
+:root[data-platform="windows"] {
+  --text-body: 14px;
+  --text-headline: 14px;
+  --text-title: 16px;
+  --text-subheadline: 12px;
+  --radius-sm: 4px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  /* Windows 11 Settings runs the navigation pane and the content on one
+     backdrop with no divider between them; the layering the eye reads comes
+     from the cards floating on it, which `GroupBox` already draws. macOS keeps
+     its distinct source-list tint, so this only moves on Windows. */
+  --bg-sidebar: var(--bg-window);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--text-primary);
+  background: var(--bg-window);
+  -webkit-font-smoothing: antialiased;
+
+  /* A desktop app is not a web page: text must not be selectable by accident
+     and the window must not rubber-band or show a text caret on chrome. */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+  overscroll-behavior: none;
+}
+
+/* Opt back in wherever content is genuinely text. */
+.selectable,
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Fluent's focus visual is a neutral high-contrast stroke hugging the control,
+   not the accent ring macOS draws. Colour and offset only; the rule above
+   still supplies the width and the radius. */
+:root[data-platform="windows"] :focus-visible {
+  outline-color: var(--text-primary);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

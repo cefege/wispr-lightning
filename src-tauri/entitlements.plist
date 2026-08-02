@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Hardened runtime is on, so microphone access must be granted
+	     explicitly or CoreAudio refuses to open an input stream. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+
+	<!-- Pausing and resuming Apple Music / Spotify during dictation. -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+</dict>
+</plist>

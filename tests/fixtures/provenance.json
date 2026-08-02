@@ -1,0 +1,27 @@
+{
+  "linked" : {
+    "files" : {
+      "Sources/WisprLightning/Models/DictionaryEntry.swift" : "0e862691101575d5e6c70b3b13599f77aba53f3d29973ac06fc2ff2219821d86",
+      "Sources/WisprLightning/Models/NoteEntry.swift" : "84fe45d4ec48de18e01009f96c49c88bad38f11205da8f2e9b13e3b0e019e9b6",
+      "Sources/WisprLightning/Models/Session.swift" : "9210cfde3b4f28060ff257a33632a8eb56add42b2ac02c6c66bdc4055e3251f9",
+      "Sources/WisprLightning/Models/Settings.swift" : "3d3b71dd006fc8af3016591a36f1bd3c73c91bf02f7a6188fa15c386fbdc7483",
+      "Sources/WisprLightning/Models/TranscriptEntry.swift" : "68e9732587815b7fefaa3bda40548db42f2046a7b95ef4a4bfb64d834a4abd1b",
+      "Sources/WisprLightning/Services/Constants.swift" : "a29181d9a137d30f598241a7a7969f682a61289ad2765d4c51cefbc8288bfef4",
+      "Sources/WisprLightning/Services/DatabaseManager.swift" : "ff4b660cba6fd5cd8cd06f7d5ad231952cf1191460245367b0225ecbe4f29b72",
+      "Sources/WisprLightning/Services/DictionaryStore.swift" : "66d78d588fe45fb747745c0bc03ebad0357ddbd6a77f5fb8329bbebc697e18c5",
+      "Sources/WisprLightning/Services/HistoryStore.swift" : "5180cebd515babbecd28af2eae2e4447904afa82d92efc4e421ae8fae6944c10",
+      "Sources/WisprLightning/Services/NotesStore.swift" : "d33887a1b3b0b260204d6aa3d3e5d78fb9dd7575a80e0d313950076562a5a2be",
+      "Sources/WisprLightning/Services/PolishService.swift" : "cfd3b5b54f7648cf05e1a3059c29ac0c95700dfea7eb6a497ce4f242e7a403bc",
+      "Sources/WisprLightning/Services/PolishStore.swift" : "5640db079df8b986308ec5ae6e7f8742cf55946ac288a7b32fed0e9591ee9d6f"
+    },
+    "how" : "Compiled into fixturegen through symlinks in tools/fixturegen/Reference/ and executed directly."
+  },
+  "regenerate_with" : "swift run fixturegen",
+  "transcribed" : {
+    "files" : {
+      "Sources/WisprLightning/App/AppDelegate.swift" : "af0ef2523cbb33d9c40b63129540a5f143e0c9d95a05e565d8b7cb8312eee609",
+      "Sources/WisprLightning/Services/TranscriptionClient.swift" : "16b773e45815fee09bebe0e7593cadcf638dd3eccd7386aa0c776501f7edfc36"
+    },
+    "how" : "Copied by hand into tools/fixturegen/ProtocolFrames.swift and SyntheticAudio.swift because the originals are private and bound to a live socket. A change to these digests means the transcription needs re-checking."
+  }
+}
