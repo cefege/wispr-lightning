@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wl-core", "crates/wl-providers", "crates/wl-platform", "src-tauri"]
+members = ["crates/wl-core", "crates/wl-providers", "crates/wl-platform", "crates/wl-shell", "src-tauri"]
 
 [workspace.package]
 version = "2.0.0"
@@ -13,6 +13,7 @@ repository = "https://github.com/cefege/wispr-lightning"
 wl-core = { path = "crates/wl-core" }
 wl-providers = { path = "crates/wl-providers" }
 wl-platform = { path = "crates/wl-platform" }
+wl-shell = { path = "crates/wl-shell" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }

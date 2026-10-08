@@ -15,8 +15,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use parking_lot::RwLock;
-use tauri::{AppHandle, Emitter};
-use tauri_plugin_autostart::ManagerExt;
 
 use wl_core::db::{Database, DictionaryStore, HistoryStore, NotesStore};
 use wl_core::settings::Settings;
@@ -27,14 +25,15 @@ use wl_platform::Platform;
 use wl_providers::credentials::CredentialStore;
 use wl_providers::TranscriptionProvider;
 
+use crate::host::Host;
 use crate::spool::Spool;
 
 /// Everything the IPC commands, the tray and the pipeline share.
 ///
-/// Registered as Tauri managed state, so a command reaches it with
-/// `tauri::State<'_, Arc<AppState>>`.
+/// Shared by every shell. Each one holds it behind an `Arc` and hands it to
+/// its IPC layer; shell-only effects are reached through [`Host`].
 pub struct AppState {
-    app: AppHandle,
+    pub host: Arc<dyn Host>,
 
     settings: Arc<RwLock<Settings>>,
     settings_path: PathBuf,
@@ -57,7 +56,6 @@ pub struct AppState {
     /// Set once during setup, after the state itself exists — the pipeline
     /// borrows the same handles, so it cannot be constructed any earlier.
     pipeline: OnceLock<Arc<crate::pipeline::Pipeline>>,
-    tray: OnceLock<Arc<crate::tray::Tray>>,
 
     /// True between `hotkey_capture_begin` and `hotkey_capture_end`. Guards
     /// against a second capture discarding the chord the first one latched.
@@ -67,7 +65,7 @@ pub struct AppState {
 /// Handles needed to build an [`AppState`]. A struct rather than a 17-argument
 /// constructor because every field is independently fallible during setup.
 pub struct AppStateParts {
-    pub app: AppHandle,
+    pub host: Arc<dyn Host>,
     pub settings: Settings,
     pub settings_path: PathBuf,
     pub db: Arc<Database>,
@@ -86,7 +84,7 @@ pub struct AppStateParts {
 impl AppState {
     pub fn new(parts: AppStateParts) -> Self {
         Self {
-            app: parts.app,
+            host: parts.host,
             settings: Arc::new(RwLock::new(parts.settings)),
             settings_path: parts.settings_path,
             db: parts.db,
@@ -101,13 +99,15 @@ impl AppState {
             credentials: parts.credentials,
             spool: parts.spool,
             pipeline: OnceLock::new(),
-            tray: OnceLock::new(),
             capturing_hotkey: AtomicBool::new(false),
         }
     }
 
-    pub fn app(&self) -> &AppHandle {
-        &self.app
+    pub(crate) fn emit<T: serde::Serialize>(&self, event: &str, payload: T) {
+        match serde_json::to_value(payload) {
+            Ok(value) => self.host.emit(event, value),
+            Err(e) => tracing::warn!(error = %e, event, "could not serialise an event payload"),
+        }
     }
 
     /// A snapshot. Callers must not hold the settings lock across an `await`,
@@ -143,15 +143,6 @@ impl AppState {
 
     pub fn pipeline(&self) -> Option<&Arc<crate::pipeline::Pipeline>> {
         self.pipeline.get()
-    }
-
-    pub fn set_tray(&self, tray: Arc<crate::tray::Tray>) {
-        debug_assert!(self.tray.get().is_none(), "tray already installed");
-        let _ = self.tray.set(tray);
-    }
-
-    pub fn tray(&self) -> Option<&Arc<crate::tray::Tray>> {
-        self.tray.get()
     }
 
     pub fn is_capturing_hotkey(&self) -> bool {
@@ -246,16 +237,14 @@ impl AppState {
 
         self.apply(&previous, &next);
 
-        if let Err(e) = self.app.emit("settings:changed", &next) {
-            tracing::warn!(error = %e, "could not broadcast settings:changed");
-        }
+        self.emit("settings:changed", &next);
         Ok(next)
     }
 
     /// Everything that must happen outside the settings file when a field
     /// changes.
     ///
-    /// Only the effects Tauri owns live here. The hotkey binding, the pause
+    /// Only the effects the windowing shell owns live here. The hotkey binding, the pause
     /// state, the input device, the microphone pre-warm and the sound pack are
     /// [`crate::pipeline::Pipeline`]'s: it reads the same `Arc<RwLock<Settings>>`
     /// and re-applies them on `settings_changed`, debouncing the microphone so
@@ -296,7 +285,7 @@ impl AppState {
 
         // The tray shows the device check mark, the pause title and the
         // Natural Mode check, so it is rebuilt for any of those.
-        if let Some(tray) = self.tray.get() {
+        if let Some(tray) = self.host.tray() {
             tray.refresh();
         }
     }
@@ -310,22 +299,16 @@ impl AppState {
     /// Windows Run-key write can be blocked by policy or antivirus and a
     /// toggle that silently turns itself back off looks like a broken feature.
     pub fn apply_launch_at_login(&self, enabled: bool) {
-        let manager = self.app.autolaunch();
         // A no-op is not a failure. On Windows `disable()` deletes the
         // `HKCU\…\Run` value and reports "file not found" when it was never
         // written, so applying the default-off setting at startup would
         // otherwise raise an error toast for a state that is already correct.
-        if manager.is_enabled().unwrap_or(false) == enabled {
+        if self.host.launch_at_login_enabled().unwrap_or(false) == enabled {
             return;
         }
-        let result = if enabled {
-            manager.enable()
-        } else {
-            manager.disable()
-        };
-        if let Err(e) = result {
+        if let Err(e) = self.host.set_launch_at_login(enabled) {
             tracing::error!(error = %e, enabled, "could not change launch at login");
-            let _ = self.app.emit(
+            self.emit(
                 "settings:error",
                 format!("Could not change Launch at login: {e}"),
             );
@@ -337,28 +320,6 @@ impl AppState {
     /// The overlay is deliberately excluded — it must stay out of the taskbar
     /// and out of Alt-Tab in every configuration.
     pub fn apply_show_in_dock(&self, show: bool) {
-        #[cfg(target_os = "macos")]
-        {
-            let policy = if show {
-                tauri::ActivationPolicy::Regular
-            } else {
-                tauri::ActivationPolicy::Accessory
-            };
-            if let Err(e) = self.app.set_activation_policy(policy) {
-                tracing::error!(error = %e, show, "could not change the activation policy");
-            }
-        }
-
-        #[cfg(not(target_os = "macos"))]
-        {
-            use tauri::Manager;
-            for label in crate::windows::MANAGED_LABELS {
-                if let Some(window) = self.app.get_webview_window(label) {
-                    if let Err(e) = window.set_skip_taskbar(!show) {
-                        tracing::warn!(error = %e, label, "could not change the taskbar entry");
-                    }
-                }
-            }
-        }
+        self.host.set_show_in_dock(show);
     }
 }

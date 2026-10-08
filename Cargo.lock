@@ -6841,6 +6841,7 @@ dependencies = [
  "wl-core",
  "wl-platform",
  "wl-providers",
+ "wl-shell",
 ]
 
 [[package]]
@@ -6935,6 +6936,28 @@ dependencies = [
  "uuid",
  "wiremock",
  "wl-core",
+]
+
+[[package]]
+name = "wl-shell"
+version = "2.0.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "crossbeam-channel",
+ "parking_lot",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "uuid",
+ "wl-core",
+ "wl-platform",
+ "wl-providers",
 ]
 
 [[package]]

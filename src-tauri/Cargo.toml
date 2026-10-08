@@ -18,6 +18,7 @@ tauri-build = { version = "2", features = [] }
 wl-core.workspace = true
 wl-platform.workspace = true
 wl-providers.workspace = true
+wl-shell.workspace = true
 
 anyhow.workspace = true
 serde.workspace = true

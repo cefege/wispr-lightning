@@ -6,13 +6,9 @@
 //! logic lives in [`wl_core`].
 
 pub mod commands;
-pub mod logging;
+pub mod host;
 pub mod overlay;
-pub mod pipeline;
-pub mod spool;
-pub mod state;
 pub mod tray;
-pub mod ui;
 pub mod windows;
 
 use std::sync::Arc;
@@ -23,7 +19,10 @@ use wl_core::db::{Database, DictionaryStore, HistoryStore, NotesStore};
 use wl_core::settings::{LoadOutcome, Settings};
 use wl_providers::credentials::CredentialStore;
 
-use crate::state::{AppState, AppStateParts};
+use wl_shell::state::{AppState, AppStateParts};
+use wl_shell::{logging, pipeline, spool, ui};
+
+use crate::host::TauriHost;
 
 /// Application entry point, shared by the desktop binary and mobile targets.
 pub fn run() {
@@ -189,8 +188,9 @@ fn setup(app: &tauri::AppHandle) -> anyhow::Result<()> {
     wl_core::paths::ensure_dir(&spool_dir)?;
     let spool = Arc::new(spool::Spool::new(spool_dir));
 
+    let host = Arc::new(TauriHost::new(app.clone()));
     let state = Arc::new(AppState::new(AppStateParts {
-        app: app.clone(),
+        host: host.clone(),
         settings: settings.clone(),
         settings_path,
         db,
@@ -208,6 +208,7 @@ fn setup(app: &tauri::AppHandle) -> anyhow::Result<()> {
     // Managed before anything that might look it up: the tray's menu handler
     // and the overlay's `Ui` impl both reach it through `AppHandle`.
     app.manage(Arc::clone(&state));
+    app.manage(Arc::clone(&host));
 
     apply_startup_settings(&state, &settings);
 
@@ -220,13 +221,12 @@ fn setup(app: &tauri::AppHandle) -> anyhow::Result<()> {
     // pays no construction latency.
     let overlay = overlay::Overlay::create(app)?;
     let tray = tray::Tray::create(app, &state)?;
-    state.set_tray(tray);
+    host.set_tray(tray);
 
-    // `Ui` is implemented for `Arc<Overlay>` rather than `Overlay`, because the
-    // transient-error auto-dismiss outlives the call that scheduled it. Hence
-    // the second `Arc` here: it is the trait object's own box, not a duplicate
-    // of the overlay.
-    let ui: Arc<dyn ui::Ui> = Arc::new(overlay);
+    // `Ui` is implemented for `OverlayUi`, a newtype over `Arc<Overlay>`, because
+    // the transient-error auto-dismiss outlives the call that scheduled it. The
+    // `Arc` inside is the timer's own clone of the overlay.
+    let ui: Arc<dyn ui::Ui> = Arc::new(overlay::OverlayUi(overlay));
 
     let deps = pipeline::PipelineDeps {
         settings: state.settings_handle(),
@@ -266,7 +266,7 @@ fn setup(app: &tauri::AppHandle) -> anyhow::Result<()> {
     // by the current configuration are usable now. A re-signed build or a
     // revoked TCC grant must return to the same guided flow before the user
     // discovers the problem on their first dictation.
-    let missing = commands::missing_required_permissions(
+    let missing = wl_shell::ops::missing_required_permissions(
         &state.settings(),
         state.platform.permissions.as_ref(),
     );

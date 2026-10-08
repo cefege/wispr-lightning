@@ -131,7 +131,7 @@ pub fn open<R: Runtime>(app: &AppHandle<R>, name: WindowName) -> tauri::Result<(
     #[cfg(not(target_os = "macos"))]
     {
         let show_in_dock = app
-            .try_state::<std::sync::Arc<crate::state::AppState>>()
+            .try_state::<std::sync::Arc<wl_shell::state::AppState>>()
             .map(|state| state.settings().show_in_dock)
             .unwrap_or(false);
         builder = builder.skip_taskbar(!show_in_dock);

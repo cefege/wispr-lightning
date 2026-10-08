@@ -1,0 +1,28 @@
+[package]
+name = "wl-shell"
+description = "Shell-agnostic orchestration for Wispr Lightning: settings writer, dictation pipeline, tray and overlay models, IPC operations. No windowing toolkit."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+wl-core.workspace = true
+wl-platform.workspace = true
+wl-providers.workspace = true
+
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+parking_lot.workspace = true
+crossbeam-channel.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+async-trait.workspace = true
+rusqlite.workspace = true
