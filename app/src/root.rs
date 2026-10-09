@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use dioxus::desktop::{use_tray_icon_event_handler, use_tray_menu_event_handler};
+use dioxus::desktop::{use_muda_event_handler, use_tray_icon_event_handler};
 use dioxus::prelude::*;
 
 use wl_shell::state::AppState;
@@ -28,10 +28,14 @@ pub fn Root() -> Element {
         }
     });
 
+    // Tray menu clicks arrive as muda events, not tray-menu events: muda keeps
+    // one global handler and the first installer wins, and dioxus-desktop
+    // installs its muda forwarder before its tray-menu one. The app has no
+    // menu bar (`with_menu(None)`), so every muda event is a tray item.
     {
         let tray = tray.clone();
         let bus = Arc::clone(&bus);
-        use_tray_menu_event_handler(move |event| {
+        use_muda_event_handler(move |event| {
             if let Some(tray) = &tray {
                 tray.borrow().on_menu_event(&bus, event.id().as_ref());
             }
