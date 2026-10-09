@@ -341,8 +341,8 @@ fn supports_dictation(mode: &LanguageMode) -> bool {
 /// # This function and the picker must agree
 ///
 /// The meaning of each code lives only in the picker label
-/// (`ui/src/settings/languages.ts`), and nothing enforces the pair. `zh` is the
-/// entry to watch: `languages.ts` names it "Chinese — Traditional (繁體中文)",
+/// (`crates/wl-providers/src/languages.rs`), and nothing enforces the pair. `zh` is the
+/// entry to watch: `languages.rs` names it "Chinese — Traditional (繁體中文)",
 /// which is the *only* reason `zh-Hant` is right here. If that table is ever
 /// regenerated from an off-the-shelf language list, `zh` will quietly become
 /// Simplified and this arm will start producing the wrong script again with no

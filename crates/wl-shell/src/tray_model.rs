@@ -13,6 +13,7 @@ pub const TRAY_ID: &str = "wispr-lightning";
 pub const ID_LAST_TRANSCRIPTION: &str = "tray:last-transcription";
 pub const ID_PAUSE: &str = "tray:pause";
 pub const ID_NATURAL_MODE: &str = "tray:natural-mode";
+pub const ID_OPEN: &str = "tray:open";
 pub const ID_SETTINGS: &str = "tray:settings";
 pub const ID_QUIT: &str = "tray:quit";
 
@@ -162,6 +163,13 @@ pub fn menu_model(input: &MenuInput<'_>) -> Vec<MenuNode> {
         checked: input.natural_mode,
     });
 
+    nodes.push(MenuNode::Item {
+        id: ID_OPEN.to_string(),
+        label: "Open Wispr Lightning".to_string(),
+        enabled: true,
+        accelerator: None,
+    });
+
     // TRY-018.
     nodes.push(MenuNode::Item {
         id: ID_SETTINGS.to_string(),
@@ -256,11 +264,21 @@ mod tests {
                 "Input Device",
                 "Pause hotkey",
                 "Natural Mode",
+                "Open Wispr Lightning",
                 "Settings",
                 "-",
                 "Quit Wispr Lightning",
             ]
         );
+    }
+
+    #[test]
+    fn open_item_has_the_stable_id_and_label() {
+        assert!(matches!(
+            &menu_model(&base(&[]))[5],
+            MenuNode::Item { id, label, enabled: true, accelerator: None }
+                if id == ID_OPEN && label == "Open Wispr Lightning"
+        ));
     }
 
     #[test]
@@ -431,7 +449,7 @@ mod tests {
     #[test]
     fn settings_carries_the_platform_comma_accelerator() {
         assert_eq!(
-            menu_model(&base(&[]))[5],
+            menu_model(&base(&[]))[6],
             MenuNode::Item {
                 id: ID_SETTINGS.to_string(),
                 label: "Settings".to_string(),

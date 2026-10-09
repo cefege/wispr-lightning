@@ -228,6 +228,20 @@ pub fn history_list(state: &AppState, limit: i64, offset: i64) -> Result<Vec<Tra
         .map_err(|e| fail("Could not read history", e))
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryTotals {
+    pub dictations: i64,
+    pub words: i64,
+}
+
+pub fn history_totals_since(state: &AppState, since: f64) -> Result<HistoryTotals> {
+    let (dictations, words) = state
+        .history
+        .totals_since(since)
+        .map_err(|e| fail("Could not read history", e))?;
+    Ok(HistoryTotals { dictations, words })
+}
+
 pub fn history_search(state: &AppState, query: &str) -> Result<Vec<TranscriptEntry>> {
     state
         .history

@@ -6,6 +6,7 @@
 pub mod credentials;
 pub mod deepgram;
 pub mod error;
+pub mod languages;
 pub mod postprocess;
 
 use async_trait::async_trait;

@@ -1,84 +1,32 @@
-//! Cross-layer contract: the language picker's codes and this crate's Deepgram
-//! translation table must agree.
+//! The Rust language catalog and Deepgram translation table must agree.
 //!
-//! # Why this test exists
-//!
-//! The language picker (`ui/src/settings/languages.ts`) retains legacy short
-//! codes rather than BCP-47; each code's meaning lives in its display label.
-//! `wl_providers::deepgram::deepgram_language_tag` translates those codes into
-//! Deepgram tags, and several translations depend on the label.
-//!
-//! `zh` is the dangerous one, and the reason this file is not just a comment:
-//!
-//! - The picker labels `zh` **"Chinese — Traditional (繁體中文)"**.
-//! - Deepgram's bare `zh` means **Simplified** (`zh`, `zh-CN`, `zh-Hans` are its
-//!   Simplified tags; Traditional is `zh-TW` / `zh-Hant`).
-//! - So the crate maps `zh` → `zh-Hant`, which is right *only* while the picker
-//!   keeps calling it Traditional.
-//!
-//! If that table is ever regenerated from an off-the-shelf language list, `zh`
-//! silently becomes Simplified, this crate keeps sending `zh-Hant`, and the user
-//! gets a confident transcript in the wrong script. Deepgram returns **HTTP
-//! 200**. No status code, no health check and no compiler error catches it —
-//! the two files are in different languages and nothing else links them. This
-//! test is the only guard.
-//!
-//! It lives in `tests/` rather than beside the code because it is a product
-//! contract spanning the UI and this crate, not a `wl-providers` unit — someone
-//! opening `deepgram.rs` should not be surprised to find it reading TypeScript.
-//!
-//! # It must never skip
-//!
-//! A missing or unparsable picker is a **failure**, not a reason to pass. A
-//! guard that quietly stops guarding is worse than no guard, because it still
-//! reads green. If the picker moves, re-point the path below; do not delete the
-//! assertions.
-
-use std::path::{Path, PathBuf};
+//! `zh` is the dangerous entry: the catalog labels it Traditional, while
+//! Deepgram's bare `zh` means Simplified. This test guards against that meaning
+//! drifting when either the catalog or translation changes.
 
 use wl_providers::deepgram::{deepgram_language_tag, language_mode, LanguageMode};
+use wl_providers::languages::LANGUAGES;
 
-fn picker_path() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/src/settings/languages.ts")
-}
-
-/// The picker source, or a panic explaining what the reader has to fix.
-fn picker_source() -> String {
-    let path = picker_path();
-    std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        panic!(
-            "cannot read the language picker at {}: {e}\n\n\
-             This is a failure, not a skip. `deepgram_language_tag` maps `zh` -> `zh-Hant` \
-             and `zhcn` -> `zh-Hans` purely because that table labels them Traditional and \
-             Simplified. If the picker moved, re-point this test; do not delete it.",
-            path.display()
-        )
-    })
-}
-
-/// The display label for one picker code, or a panic naming the missing code.
-fn label_for(source: &str, code: &str) -> String {
-    let needle = format!("code: \"{code}\"");
-    let line = source
-        .lines()
-        .find(|l| l.contains(&needle))
+/// The display label for one catalog code, or a panic naming the missing code.
+fn label_for(code: &str) -> &'static str {
+    LANGUAGES
+        .iter()
+        .find(|language| language.code == code)
+        .map(|language| language.name)
         .unwrap_or_else(|| {
             panic!(
-                "no `{code}` entry in {}.\n\n\
-                 `deepgram_language_tag` has an arm for `{code}`, so either the picker \
+                "no `{code}` entry in wl_providers::languages::LANGUAGES.\n\n\
+                 `deepgram_language_tag` has an arm for `{code}`, so either the catalog \
                  renamed it — in which case that arm is now dead and the user's selection \
                  reaches Deepgram untranslated — or the entry was dropped and the arm \
-                 should go too.",
-                picker_path().display()
+                 should go too."
             )
-        });
-    line.trim().to_string()
+        })
 }
 
 #[test]
 fn the_picker_still_calls_zh_traditional_which_is_why_it_maps_to_zh_hant() {
-    let source = picker_source();
-    let label = label_for(&source, "zh");
+    let label = label_for("zh");
 
     assert!(
         label.contains("Traditional"),
@@ -93,8 +41,7 @@ fn the_picker_still_calls_zh_traditional_which_is_why_it_maps_to_zh_hant() {
 
 #[test]
 fn the_picker_still_calls_zhcn_simplified_which_is_why_it_maps_to_zh_hans() {
-    let source = picker_source();
-    let label = label_for(&source, "zhcn");
+    let label = label_for("zhcn");
 
     assert!(
         label.contains("Simplified"),
@@ -106,7 +53,6 @@ fn the_picker_still_calls_zhcn_simplified_which_is_why_it_maps_to_zh_hans() {
 
 #[test]
 fn every_code_the_crate_translates_still_exists_in_the_picker() {
-    let source = picker_source();
 
     // Each remapped code, with the picker word that establishes its meaning.
     // A code that vanishes leaves a dead arm; a code whose meaning drifts makes
@@ -120,7 +66,7 @@ fn every_code_the_crate_translates_still_exists_in_the_picker() {
     ];
 
     for (code, meaning, tag) in contract {
-        let label = label_for(&source, code);
+        let label = label_for(code);
         assert!(
             label.contains(meaning),
             "the picker's `{code}` no longer mentions \"{meaning}\":\n  {label}\n\n\
@@ -134,12 +80,14 @@ fn every_code_the_crate_translates_still_exists_in_the_picker() {
     }
 }
 
-/// `hien` ("Hinglish") is deliberately absent from the picker.
-///
+
+
+/// `hien` ("Hinglish") is deliberately absent from the Rust language catalog.
+
 /// It never selected a Hindi-English mode: it translates to `multi`, the
 /// code-switching pseudo-language, which is exactly what Auto-detect sends. It
-/// was a third label for one behaviour, so the picker stopped offering it.
-///
+/// was a third label for one behaviour, so the catalog stopped offering it.
+
 /// The translation stays. Settings files written before it was retired still
 /// hold `hien`, and those users keep the behaviour they chose rather than
 /// having their language silently reinterpreted as a literal `hien` tag that
@@ -148,18 +96,16 @@ fn every_code_the_crate_translates_still_exists_in_the_picker() {
 fn the_retired_hinglish_code_still_translates_for_settings_that_hold_it() {
     assert_eq!(deepgram_language_tag("hien"), "multi");
     assert!(
-        !picker_source().contains("\"hien\""),
+        !LANGUAGES.iter().any(|language| language.code == "hien"),
         "`hien` is back in the picker: it is indistinguishable from Auto-detect, \
          so either drop it again or give the picker a label that says so."
     );
 }
+/// `auto` is a legacy settings value, no longer emitted by the Rust UI.
 
-/// `auto` is a legacy settings value, no longer emitted by any picker.
-///
-/// It was the *shared* language picker's detect sentinel. That picker
-/// (`LanguagePicker.svelte`) is gone, and Deepgram's own picker uses
+/// It was the shared picker's detect sentinel. Deepgram's own picker uses
 /// `__auto__`, so nothing in the UI writes `auto` any more.
-///
+
 /// The mapping stays because settings files predating the cutover still hold
 /// it, in `languages` lists that `migrate` folds into `deepgramLanguage`.
 /// Without the special case it would fall through to the single-language arm
