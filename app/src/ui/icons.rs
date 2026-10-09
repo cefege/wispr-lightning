@@ -13,8 +13,6 @@ pub enum IconName {
     Snippet,
     Import,
     Warning,
-    Close,
-    Chevron,
     General,
     History,
     Dictionary,
@@ -89,8 +87,6 @@ pub fn Icon(props: IconProps) -> Element {
                     path { d: "M8 6.25v3.25" }
                     circle { cx: "8", cy: "11.6", r: "0.6", fill: "currentColor", stroke: "none" }
                 },
-                IconName::Close => rsx! { path { d: "M4 4l8 8M12 4l-8 8" } },
-                IconName::Chevron => rsx! { path { d: "m5 6 3 3 3-3" } },
                 IconName::Home => rsx! {
                     path { d: "m2 7.5 6-5 6 5" }
                     path { d: "M3.5 6.5v7h9v-7M6.5 13.5V9h3v4.5" }

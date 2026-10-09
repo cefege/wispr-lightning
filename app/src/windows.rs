@@ -162,8 +162,7 @@ fn activate_app() {
         return;
     };
     let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
-    #[allow(deprecated)]
-    app.activateIgnoringOtherApps(true);
+    app.activate();
 }
 
 #[cfg(not(target_os = "macos"))]
