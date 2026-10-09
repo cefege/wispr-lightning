@@ -1,10 +1,8 @@
-# Wispr Lightning — Rust/Tauri Cross-Platform Port
+# Historical port plan — superseded by the Dioxus migration
 
-Status: **implemented; Deepgram-only cutover complete**
+Status: **historical; no longer describes the production UI or build**
 
-The original Swift application remains the behavioral reference for dictation, storage, hotkeys, text injection, history, dictionary, notes, permissions, sound, and lifecycle behavior. The production application is now Rust + Tauri v2 on macOS and Windows. Transcription has one path: Deepgram Nova streaming.
-
-Historical source-analysis documents under `docs/parity/` explain the Swift implementation that was ported. They are evidence, not live product requirements where they describe retired Wispr Flow, OpenRouter, Claude Voice, OAuth, AI Polish, or fallback-chain behavior.
+This document records the earlier Rust/Tauri port. The production application has since moved to a native Dioxus shell; current build instructions and crate layout are in `README.md`. The historical analysis remains useful for product behavior and migration context, but implementation and verification details below must not be treated as current.
 
 ## Product contract
 

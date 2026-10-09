@@ -1,4 +1,4 @@
-//! In-process replacement for the Tauri event system.
+//! In-process UI and pipeline event bus.
 //!
 //! The pipeline and `AppState` publish from worker threads; Dioxus components
 //! and the tray consume on the main thread. Every channel is a `tokio::sync`

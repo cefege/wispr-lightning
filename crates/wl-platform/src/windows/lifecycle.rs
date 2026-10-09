@@ -57,14 +57,13 @@ impl Lifecycle for WindowsLifecycle {
 
     /// Not ours to answer.
     ///
-    /// `tauri-plugin-autostart` owns launch-at-login on both targets
-    /// (PORT_PLAN §4), and having two writers for one registry value is how
-    /// you end up with a setting that silently reverts. Reporting
-    /// `Unsupported` keeps the plugin the single source of truth instead of
-    /// pretending here.
+    /// Launch-at-login is managed by the app layer; having two writers for one
+    /// registry value is how you end up with a setting that silently reverts.
+    /// Reporting `Unsupported` keeps this platform implementation from
+    /// conflicting with the app's setting.
     fn set_launch_at_login(&self, _enabled: bool) -> Result<()> {
         Err(PlatformError::Unsupported(
-            "launch at login is owned by the Tauri autostart plugin",
+            "launch at login is managed by the app",
         ))
     }
 

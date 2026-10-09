@@ -71,12 +71,11 @@ impl Lifecycle for MacLifecycle {
     }
 
     fn set_launch_at_login(&self, _enabled: bool) -> Result<()> {
-        // Owned by `tauri-plugin-autostart` at the app layer: on macOS it
-        // registers a `SMAppService` login item against the bundle, which only
-        // exists once the app is packaged. Duplicating it here would fight the
-        // plugin for the same registration.
+        // Managed by the app layer: on macOS it registers a `SMAppService`
+        // login item against the bundle, which only exists once the app is
+        // packaged. Duplicating it here would conflict with the app's setting.
         Err(PlatformError::Unsupported(
-            "launch at login is managed by the autostart plugin",
+            "launch at login is managed by the app",
         ))
     }
 

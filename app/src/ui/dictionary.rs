@@ -4,7 +4,14 @@ use dioxus::prelude::*;
 use wl_core::db::models::DictionaryEntry;
 use wl_shell::{ops, state::AppState};
 
-use crate::{bus::{Bus, DICTIONARY_CHANGED}, ui::{self, icons::{Icon, IconName}, widgets::{EmptyState, SearchField}}};
+use crate::{
+    bus::{Bus, DICTIONARY_CHANGED},
+    ui::{
+        self,
+        icons::{Icon, IconName},
+        widgets::{EmptyState, SearchField},
+    },
+};
 
 #[derive(Clone, PartialEq)]
 struct Draft {
@@ -40,8 +47,14 @@ pub fn view() -> Element {
             let state_snippets = state.clone();
             spawn(async move {
                 let (vocabulary_result, snippets_result) = tokio::join!(
-                    tokio::task::spawn_blocking(move || ops::dictionary_list(&state_vocabulary, "vocabulary")),
-                    tokio::task::spawn_blocking(move || ops::dictionary_list(&state_snippets, "snippets"))
+                    tokio::task::spawn_blocking(move || ops::dictionary_list(
+                        &state_vocabulary,
+                        "vocabulary"
+                    )),
+                    tokio::task::spawn_blocking(move || ops::dictionary_list(
+                        &state_snippets,
+                        "snippets"
+                    ))
                 );
                 let result = vocabulary_result
                     .map_err(|error| error.to_string())
@@ -52,7 +65,9 @@ pub fn view() -> Element {
                             .and_then(|result| result)
                             .map(|snippets| (vocabulary, snippets))
                     });
-                if generation() != stamp { return; }
+                if generation() != stamp {
+                    return;
+                }
                 match result {
                     Ok((vocabulary_rows, snippet_rows)) => {
                         vocabulary.set(vocabulary_rows);
@@ -75,7 +90,7 @@ pub fn view() -> Element {
             loop {
                 match changes.recv().await {
                     Ok(DICTIONARY_CHANGED) => load(),
-                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {},
+                    Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -86,55 +101,139 @@ pub fn view() -> Element {
 
     let is_snippets = tab();
     let needle = query().trim().to_lowercase();
-    let source = if is_snippets { snippets() } else { vocabulary() };
-    let rows: Vec<_> = source.into_iter().filter(|entry| needle.is_empty() || entry.phrase.to_lowercase().contains(&needle) || entry.replacement.as_deref().unwrap_or("").to_lowercase().contains(&needle)).collect();
-    let mut start_draft = move || draft.set(Some(Draft { entry: None, snippet: tab(), phrase: String::new(), replacement: String::new() }));
+    let source = if is_snippets {
+        snippets()
+    } else {
+        vocabulary()
+    };
+    let rows: Vec<_> = source
+        .into_iter()
+        .filter(|entry| {
+            needle.is_empty()
+                || entry.phrase.to_lowercase().contains(&needle)
+                || entry
+                    .replacement
+                    .as_deref()
+                    .unwrap_or("")
+                    .to_lowercase()
+                    .contains(&needle)
+        })
+        .collect();
+    let mut start_draft = move || {
+        draft.set(Some(Draft {
+            entry: None,
+            snippet: tab(),
+            phrase: String::new(),
+            replacement: String::new(),
+        }))
+    };
     let mut start_draft_for_empty = start_draft;
 
     let mut commit = {
         let state = state.clone();
         let load = load.clone();
         move || {
-            let Some(current) = draft() else { return; };
+            let Some(current) = draft() else {
+                return;
+            };
             draft.set(None);
             let state = state.clone();
             let mut load = load.clone();
             spawn(async move {
                 let phrase = current.phrase.trim().to_string();
                 let replacement = current.replacement.trim();
-                let input = ops::DictionaryInput { id: current.entry.as_ref().map(|e| e.id.clone()).unwrap_or_default(), phrase, replacement: if replacement.is_empty() { None } else { Some(replacement.to_string()) }, is_snippet: current.snippet };
-                let result = tokio::task::spawn_blocking(move || if current.entry.is_some() { ops::dictionary_update(&state, input) } else { ops::dictionary_add(&state, input).map(|_| ()) }).await.map_err(|e| e.to_string()).and_then(|r| r);
-                if let Err(e) = result { error.set(Some(e)); } else { load(); }
+                let input = ops::DictionaryInput {
+                    id: current
+                        .entry
+                        .as_ref()
+                        .map(|e| e.id.clone())
+                        .unwrap_or_default(),
+                    phrase,
+                    replacement: if replacement.is_empty() {
+                        None
+                    } else {
+                        Some(replacement.to_string())
+                    },
+                    is_snippet: current.snippet,
+                };
+                let result = tokio::task::spawn_blocking(move || {
+                    if current.entry.is_some() {
+                        ops::dictionary_update(&state, input)
+                    } else {
+                        ops::dictionary_add(&state, input).map(|_| ())
+                    }
+                })
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r);
+                if let Err(e) = result {
+                    error.set(Some(e));
+                } else {
+                    load();
+                }
             });
         }
     };
     let mut commit_for_enter = commit.clone();
     let mut commit_for_replacement = commit.clone();
     let remove = {
-        let state = state.clone(); let load = load.clone();
+        let state = state.clone();
+        let load = load.clone();
         move |_| {
             if let Some(entry) = delete() {
                 delete.set(None);
-                let state = state.clone(); let mut load = load.clone();
+                let state = state.clone();
+                let mut load = load.clone();
                 spawn(async move {
                     let id = entry.id;
-                    let result = tokio::task::spawn_blocking(move || ops::dictionary_delete(&state, &id)).await.map_err(|e| e.to_string()).and_then(|r| r);
-                    if let Err(e) = result { error.set(Some(e)); } else { load(); }
+                    let result =
+                        tokio::task::spawn_blocking(move || ops::dictionary_delete(&state, &id))
+                            .await
+                            .map_err(|e| e.to_string())
+                            .and_then(|r| r);
+                    if let Err(e) = result {
+                        error.set(Some(e));
+                    } else {
+                        load();
+                    }
                 });
             }
         }
     };
     let import = {
-        let state = state.clone(); let load = load.clone();
+        let state = state.clone();
+        let load = load.clone();
         move |_| {
-            let state = state.clone(); let mut load = load.clone();
+            let state = state.clone();
+            let mut load = load.clone();
             spawn(async move {
-                let Some(path) = ui::pick_csv().await else { return; };
-                let result = tokio::task::spawn_blocking(move || ops::dictionary_import_csv(&state, &path)).await.map_err(|e| e.to_string()).and_then(|r| r);
+                let Some(path) = ui::pick_csv().await else {
+                    return;
+                };
+                let result =
+                    tokio::task::spawn_blocking(move || ops::dictionary_import_csv(&state, &path))
+                        .await
+                        .map_err(|e| e.to_string())
+                        .and_then(|r| r);
                 match result {
                     Ok(result) => {
                         load();
-                        import_result.set(Some(if result.errors.is_empty() { format!("Imported {} entries.", result.imported) } else { format!("Imported {} entries with {} errors:\n{}", result.imported, result.errors.len(), result.errors.iter().take(5).cloned().collect::<Vec<_>>().join("\n")) }));
+                        import_result.set(Some(if result.errors.is_empty() {
+                            format!("Imported {} entries.", result.imported)
+                        } else {
+                            format!(
+                                "Imported {} entries with {} errors:\n{}",
+                                result.imported,
+                                result.errors.len(),
+                                result
+                                    .errors
+                                    .iter()
+                                    .take(5)
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                                    .join("\n")
+                            )
+                        }));
                     }
                     Err(e) => error.set(Some(e)),
                 }

@@ -14,10 +14,10 @@
 //! other two main-thread-only APIs in this module tree.
 //!
 //! In practice that helper never has to dispatch: the seed read happens during
-//! Tauri's `setup`, which runs on the main thread, and
+//! the app's setup, which runs on the main thread, and
 //! `NSSystemColorsDidChangeNotification` is posted on the main thread too. That
-//! is the point of caching the value rather than reading it per call — the IPC
-//! command runs on a tokio worker, and a command that waited on the main run
+//! is the point of caching the value rather than reading it per call — the app
+//! operation runs on a tokio worker, and an operation that waited on the main run
 //! loop could be waiting on a run loop that is blocked behind its own caller.
 
 use std::sync::Arc;

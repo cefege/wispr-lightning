@@ -7,6 +7,7 @@
 
 mod accent;
 mod bus;
+mod components;
 mod host;
 mod overlay;
 mod paths;
@@ -14,9 +15,8 @@ mod platform;
 mod root;
 mod setup;
 mod tray;
-mod ui_impl;
-mod components;
 mod ui;
+mod ui_impl;
 mod window_state;
 mod windows;
 
@@ -42,12 +42,30 @@ fn main() {
 }
 
 fn run() {
+    // macOS opens the lock name as a file, so use a stable writable directory
+    // rather than LaunchServices' unpredictable working directory. Windows
+    // treats it as a named mutex; keep that name free of path separators.
+    #[cfg(target_os = "macos")]
+    let lock_name = {
+        let app_support = wl_core::paths::app_support_dir();
+        if let Err(e) = wl_core::paths::ensure_dir(&app_support) {
+            tracing::error!(error = %e, path = %app_support.display(), "could not prepare application support directory");
+            return;
+        }
+        app_support
+            .join("com.wisprlightning.app")
+            .to_string_lossy()
+            .into_owned()
+    };
+    #[cfg(not(target_os = "macos"))]
+    let lock_name = "com.wisprlightning.app".to_owned();
+
     // A second launch cannot reach the first instance's windows from another
     // process, so exiting is the whole of the behaviour.
-    let instance = match single_instance::SingleInstance::new("com.wisprlightning.app") {
+    let instance = match single_instance::SingleInstance::new(&lock_name) {
         Ok(instance) => instance,
         Err(e) => {
-            tracing::error!(error = %e, "could not check for another instance");
+            tracing::error!(error = %e, name = %lock_name, "could not check for another instance");
             return;
         }
     };

@@ -80,6 +80,7 @@ fn apply_dashboard(
     history_error.set(result.history_error);
 }
 
+#[component]
 pub fn view() -> Element {
     let state = use_context::<Arc<AppState>>();
     let bus = use_context::<Arc<Bus>>();
@@ -200,9 +201,21 @@ pub fn view() -> Element {
         });
     });
 
-    let hotkeys = settings.hotkeys.iter().map(|hotkey| hotkey.label()).collect::<Vec<_>>();
-    let primary_hotkey = hotkeys.first().cloned().unwrap_or_else(|| "Unset".to_string());
-    let other_hotkeys = hotkeys.iter().skip(1).cloned().collect::<Vec<_>>().join(", ");
+    let hotkeys = settings
+        .hotkeys
+        .iter()
+        .map(|hotkey| hotkey.label())
+        .collect::<Vec<_>>();
+    let primary_hotkey = hotkeys
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "Unset".to_string());
+    let other_hotkeys = hotkeys
+        .iter()
+        .skip(1)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
     let totals_value = totals();
     let recent_entries = recent();
     let resume_state = Arc::clone(&state);

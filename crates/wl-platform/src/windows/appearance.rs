@@ -10,8 +10,8 @@
 //!
 //! **Apartment.** Registration joins whatever apartment the process already
 //! has, exactly as in [`super::devices`]: [`super::ensure_mta`] gives every
-//! COM-uninitialised thread an implicit MTA, and Tauri owns the main thread as
-//! an STA for WebView2. `UISettings` is agile, so `ColorValuesChanged` arrives
+//! COM-uninitialised thread an implicit MTA, and the Dioxus main thread is an
+//! STA for WebView2. `UISettings` is agile, so `ColorValuesChanged` arrives
 //! on a system thread either way and never on the UI thread.
 //!
 //! **Threading.** The callback takes one lock, writes a cached colour and calls

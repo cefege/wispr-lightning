@@ -1,8 +1,11 @@
-use std::sync::Arc;
 use dioxus::prelude::*;
+use std::sync::Arc;
 use wl_shell::{ops, state::AppState};
 
-use crate::ui::{store::SettingsStore, widgets::{ErrorBanner, SettingRow}};
+use crate::ui::{
+    store::SettingsStore,
+    widgets::{ErrorBanner, SettingRow},
+};
 
 #[component]
 pub fn view() -> Element {
@@ -70,20 +73,47 @@ pub fn view() -> Element {
     }
 }
 
-fn refresh_permissions(state: Arc<AppState>, mut permissions: Signal<Vec<(String, String)>>, mut error: Signal<Option<String>>, mut loaded: Signal<bool>) {
+fn refresh_permissions(
+    state: Arc<AppState>,
+    mut permissions: Signal<Vec<(String, String)>>,
+    mut error: Signal<Option<String>>,
+    mut loaded: Signal<bool>,
+) {
     spawn(async move {
         match tokio::task::spawn_blocking(move || ops::permissions_status(&state)).await {
-            Ok(Ok(map)) => { permissions.set(map.into_iter().map(|(k, v)| (k, v.to_string())).collect()); error.set(None); }
-            Ok(Err(e)) => error.set(Some(e.to_string())), Err(e) => error.set(Some(e.to_string())),
+            Ok(Ok(map)) => {
+                permissions.set(map.into_iter().map(|(k, v)| (k, v.to_string())).collect());
+                error.set(None);
+            }
+            Ok(Err(e)) => error.set(Some(e.to_string())),
+            Err(e) => error.set(Some(e.to_string())),
         }
         loaded.set(true);
     });
 }
-fn request_permission(state: Arc<AppState>, key: String, open: bool, permissions: Signal<Vec<(String, String)>>, mut error: Signal<Option<String>>, loaded: Signal<bool>) {
+fn request_permission(
+    state: Arc<AppState>,
+    key: String,
+    open: bool,
+    permissions: Signal<Vec<(String, String)>>,
+    mut error: Signal<Option<String>>,
+    loaded: Signal<bool>,
+) {
     spawn(async move {
         let request_state = state.clone();
-        let result = tokio::task::spawn_blocking(move || if open { ops::permissions_open_settings(&request_state, &key) } else { ops::permissions_request(&request_state, &key) }).await;
-        match result { Ok(Ok(())) => error.set(None), Ok(Err(e)) => error.set(Some(e.to_string())), Err(e) => error.set(Some(e.to_string())) }
+        let result = tokio::task::spawn_blocking(move || {
+            if open {
+                ops::permissions_open_settings(&request_state, &key)
+            } else {
+                ops::permissions_request(&request_state, &key)
+            }
+        })
+        .await;
+        match result {
+            Ok(Ok(())) => error.set(None),
+            Ok(Err(e)) => error.set(Some(e.to_string())),
+            Err(e) => error.set(Some(e.to_string())),
+        }
         refresh_permissions(state, permissions, error, loaded);
     });
 }
@@ -107,4 +137,12 @@ fn permission_label(key: &str) -> String {
             .join(" "),
     }
 }
-fn permission_state_label(state: &str) -> &'static str { match state { "granted" => "Granted", "denied" => "Denied", "not_determined" => "Not requested", "not_applicable" => "Not required on this system", _ => "Not required on this system" } }
+fn permission_state_label(state: &str) -> &'static str {
+    match state {
+        "granted" => "Granted",
+        "denied" => "Denied",
+        "not_determined" => "Not requested",
+        "not_applicable" => "Not required on this system",
+        _ => "Not required on this system",
+    }
+}

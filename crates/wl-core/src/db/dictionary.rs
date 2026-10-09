@@ -739,19 +739,21 @@ mod tests {
     fn a_batch_of_auto_learned_words_invalidates_the_caches_once_committed() {
         let (store, _db) = store();
         store.warm_up().expect("warm up");
-        let words = vec!["Anthropic".to_string(), "Tauri".to_string()];
+        let words = vec!["Anthropic".to_string(), "SampleCorp".to_string()];
         assert_eq!(store.add_auto_learned_words(&words).expect("batch"), 2);
 
         let mut phrases = store.vocabulary_phrases().expect("vocab");
         phrases.sort();
-        assert_eq!(phrases, ["Anthropic", "Tauri"]);
+        assert_eq!(phrases, ["Anthropic", "SampleCorp"]);
     }
 
     #[test]
     fn an_auto_learned_batch_reports_only_the_rows_it_actually_inserted() {
         let (store, _db) = store();
-        store.add_manual("Tauri", None, false).expect("existing");
-        let words = vec!["Tauri".to_string(), "Rust".to_string()];
+        store
+            .add_manual("SampleCorp", None, false)
+            .expect("existing");
+        let words = vec!["SampleCorp".to_string(), "Rust".to_string()];
         assert_eq!(store.add_auto_learned_words(&words).expect("batch"), 1);
     }
 

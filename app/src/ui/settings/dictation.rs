@@ -1,13 +1,20 @@
+use crate::ui::{store::SettingsStore, widgets::SettingRow};
 use dioxus::prelude::*;
 use wl_core::settings::{EmailSignature, TypingSpeed};
-use crate::ui::{store::SettingsStore, widgets::SettingRow};
 
 #[component]
 pub fn view() -> Element {
     let store = use_context::<SettingsStore>();
     let value = store.value.read().clone();
-    let speed = match value.natural_mode_speed { TypingSpeed::Slow => "slow", TypingSpeed::Normal => "normal", TypingSpeed::Expert => "expert" };
-    let signature = match &value.email_signature_option { EmailSignature::WrittenWithLightning => "written_with_lightning", EmailSignature::SpokenWithLightning => "spoken_with_lightning" };
+    let speed = match value.natural_mode_speed {
+        TypingSpeed::Slow => "slow",
+        TypingSpeed::Normal => "normal",
+        TypingSpeed::Expert => "expert",
+    };
+    let signature = match &value.email_signature_option {
+        EmailSignature::WrittenWithLightning => "written_with_lightning",
+        EmailSignature::SpokenWithLightning => "spoken_with_lightning",
+    };
     rsx! {
         div { class: "mx-auto max-w-[760px] space-y-4",
             div { class: "rounded-lg border border-line bg-surface p-4 shadow-card",

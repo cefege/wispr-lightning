@@ -90,7 +90,7 @@ pub fn lifecycle() -> Arc<dyn crate::Lifecycle> {
 /// Kept out of [`platform`] for the same reason as [`lifecycle`]: it owns a
 /// notification registration, so it needs an explicit lifetime rather than
 /// being reconstructed wherever it is wanted. Construct it on the main thread —
-/// Tauri's `setup` — and the seed read costs nothing.
+/// the app's setup — and the seed read costs nothing.
 pub fn appearance() -> Arc<dyn crate::Appearance> {
     Arc::new(MacAppearance::new())
 }

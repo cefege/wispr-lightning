@@ -1,6 +1,6 @@
 //! The side effects only a windowing shell can perform, behind a trait so the
-//! shell-agnostic core never names a toolkit. The Tauri app implements [`Host`]
-//! in `src-tauri`; the Dioxus app implements it in `app/`.
+//! shell-agnostic core never names a toolkit. The Dioxus app implements [`Host`]
+//! in `app/`.
 
 use wl_platform::audio::InputDevice;
 

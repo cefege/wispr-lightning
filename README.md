@@ -2,7 +2,7 @@
 
 Push-to-talk dictation for **macOS and Windows**. Hold a key, speak, release — the transcribed text lands at your cursor in whatever app you were already using.
 
-Originally a native Swift macOS app; now a Rust + Tauri v2 desktop app with one transcription path: Deepgram live streaming.
+Originally a native Swift macOS app; now a Rust + Dioxus desktop app with one transcription path: Deepgram live streaming.
 
 ## What it does
 
@@ -58,12 +58,12 @@ Settings → Privacy shows every permission's live status with a button to reque
 
 ## Build from source
 
-Requires Rust 1.85+, Node 20+, and pnpm.
+Requires Rust 1.85+ and Dioxus CLI 0.7.10.
 
 ```bash
-pnpm --dir ui install
-cargo tauri dev      # run
-cargo tauri build    # package
+cargo test --workspace
+dx serve --desktop --package wispr-lightning
+dx bundle --platform desktop --release --package wispr-lightning
 ```
 
 ### Cross-compiling to Windows from macOS
@@ -72,33 +72,20 @@ cargo tauri build    # package
 brew install llvm
 cargo install cargo-xwin
 rustup target add x86_64-pc-windows-msvc
-cargo xwin check -p wl-platform --target x86_64-pc-windows-msvc
+RUSTC="$(rustup which rustc)" cargo xwin check --workspace --all-targets --target x86_64-pc-windows-msvc
 ```
 
-### Building on Windows without administrator rights
+### Windows
 
-Visual Studio Build Tools requires elevation, so on a locked-down machine fetch a portable
-MSVC toolchain instead. Node and pnpm come from the plain ZIP distribution, and `rustup-init`
-installs per-user by default.
+Build on Windows with Rust and the Dioxus CLI installed:
 
-```bat
-curl -fsSL -o node.zip https://nodejs.org/dist/v22.14.0/node-v22.14.0-win-x64.zip
-tar -xf node.zip
-curl -fsSL -o rustup-init.exe https://win.rustup.rs/x86_64
-rustup-init.exe -y --default-toolchain stable-x86_64-pc-windows-msvc --profile minimal
-
-:: portable MSVC + Windows SDK, no installer, no elevation
-curl -fsSL -o portable-msvc.py https://gist.githubusercontent.com/mmozeiko/7f3162ec2988e81e56d5c4e22cde9977/raw/portable-msvc.py
-python portable-msvc.py --accept-license --target x64
-call msvc\setup_x64.bat
-
-npm install -g pnpm@10
-pnpm --dir ui install
-pnpm dlx @tauri-apps/cli@2.11.1 build --bundles nsis
+```powershell
+cargo test --workspace
+dx bundle --platform desktop --release --package wispr-lightning
 ```
 
-`setup_x64.bat` puts `cl.exe` and `link.exe` on `PATH` ahead of the `link.exe` that ships with
-Git for Windows, which would otherwise be picked first and fail the link.
+The NSIS bundle installs per-user and does not require administrator rights.
+
 
 ## Layout
 
@@ -106,8 +93,8 @@ Git for Windows, which would otherwise be picked first and fail the link.
 crates/wl-core/       settings · SQLite · audio framing · recording state machine · text
 crates/wl-providers/  Deepgram streaming · credential storage · local post-processing
 crates/wl-platform/   hotkeys · capture · injection · OCR · media — macOS + Windows
-src-tauri/            tray · windows · overlay · IPC · dictation pipeline
-ui/                   Svelte 5 + Vite — settings, history, notes, dictionary, overlay
+crates/wl-shell/      dictation pipeline · tray and platform-independent operations
+app/                  Dioxus desktop shell · UI · overlay · tray · bundled resources
 ```
 
 `wl-core` and `wl-providers` touch no OS APIs, so the bulk of the behaviour is testable on any host.
@@ -116,7 +103,7 @@ ui/                   Svelte 5 + Vite — settings, history, notes, dictionary, 
 
 ```bash
 cargo test --workspace
-pnpm --dir ui check
+cargo clippy --workspace --all-targets -- -D warnings
 cargo run -p wl-platform --example probe
 ```
 

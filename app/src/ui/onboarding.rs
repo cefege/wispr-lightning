@@ -165,11 +165,15 @@ pub fn OnboardingFlow() -> Element {
                     if permission_error.read().is_none() && !ready_for(&required, &statuses) {
                         let active = active_permission.read().clone();
                         let active_still_pending = active.as_ref().is_some_and(|key| {
-                            statuses.get(key).is_some_and(|status| *status == "not_determined")
+                            statuses
+                                .get(key)
+                                .is_some_and(|status| *status == "not_determined")
                         });
                         if !active_still_pending {
                             if let Some((key, _, _)) = required.iter().find(|(key, _, _)| {
-                                statuses.get(*key).is_some_and(|status| *status == "not_determined")
+                                statuses
+                                    .get(*key)
+                                    .is_some_and(|status| *status == "not_determined")
                             }) {
                                 if !requested.read().contains(&key.to_string()) {
                                     active_permission.set(Some(key.to_string()));
@@ -556,7 +560,10 @@ fn PermissionStep(props: PermissionStepProps) -> Element {
     let windows = cfg!(target_os = "windows");
     let ready = props.permissions_loaded
         && props.error.is_none()
-        && props.rows.iter().all(|(_, _, _, state)| *state == "granted");
+        && props
+            .rows
+            .iter()
+            .all(|(_, _, _, state)| *state == "granted");
     rsx! {
         p { class: "m-0 text-fg",
             if windows {
@@ -683,7 +690,6 @@ fn HotkeyStep(props: HotkeyStepProps) -> Element {
         p { class: "m-0 text-xs text-fg-muted", "Keep the default if it suits you. Extra keys, and what a quick tap does, are in Settings." }
     }
 }
-
 
 #[derive(Props, Clone, PartialEq)]
 struct DeepgramStepProps {

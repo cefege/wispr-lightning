@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use std::path::PathBuf;
 use dioxus::prelude::*;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use dioxus::desktop::window;
 
@@ -61,7 +61,7 @@ pub struct MainWindowProps {
 
 #[component]
 pub fn MainWindow(props: MainWindowProps) -> Element {
-    store::provide();
+    store::use_provide_settings_store();
     let store = use_context::<store::SettingsStore>();
     let bus = use_context::<Arc<Bus>>();
     let mut section = use_signal(|| props.initial);
@@ -139,15 +139,15 @@ pub fn MainWindow(props: MainWindowProps) -> Element {
                 }
                 section { class: "min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-5",
                     match current {
-                        Section::Home => home::view(),
-                        Section::History => history::view(),
-                        Section::Dictionary => dictionary::view(),
-                        Section::Notes => notes::view(),
-                        Section::General => settings::general::view(),
-                        Section::Dictation => settings::dictation::view(),
-                        Section::Transcription => settings::transcription::view(),
-                        Section::Privacy => settings::privacy::view(),
-                        Section::System => settings::system::view(),
+                        Section::Home => rsx! { home::view {} },
+                        Section::History => rsx! { history::view {} },
+                        Section::Dictionary => rsx! { dictionary::view {} },
+                        Section::Notes => rsx! { notes::view {} },
+                        Section::General => rsx! { settings::general::view {} },
+                        Section::Dictation => rsx! { settings::dictation::view {} },
+                        Section::Transcription => rsx! { settings::transcription::view {} },
+                        Section::Privacy => rsx! { settings::privacy::view {} },
+                        Section::System => rsx! { settings::system::view {} },
                     }
                 }
             }

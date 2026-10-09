@@ -4,7 +4,7 @@
 //!
 //! * **Apartment.** `UIAutomation::new()` calls
 //!   `CoInitializeEx(COINIT_MULTITHREADED)` on the calling thread, which fails
-//!   with `RPC_E_CHANGED_MODE` on Tauri's STA main thread, and UIA proxies
+//!   with `RPC_E_CHANGED_MODE` on the Dioxus STA main thread, and UIA proxies
 //!   must not be shared across apartments. One dedicated MTA thread owns the
 //!   `UIAutomation` object and every element derived from it; only plain data
 //!   crosses back.

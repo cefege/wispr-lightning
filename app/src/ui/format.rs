@@ -110,7 +110,11 @@ pub fn language_options(model: &str, stored: &str) -> Vec<LanguageOption> {
         value: AUTO_DETECT,
         label: "Auto-detect (multilingual)".to_owned(),
     });
-    rows.extend(options.into_iter().filter(|option| option.value != AUTO_DETECT));
+    rows.extend(
+        options
+            .into_iter()
+            .filter(|option| option.value != AUTO_DETECT),
+    );
     rows
 }
 
@@ -145,12 +149,18 @@ mod tests {
         let now = local_time(2026, 3, 5, 0, 5);
         let entries = vec![
             entry(local_time(2026, 3, 5, 0, 1).timestamp() as f64, "today"),
-            entry(local_time(2026, 3, 4, 23, 59).timestamp() as f64, "yesterday"),
+            entry(
+                local_time(2026, 3, 4, 23, 59).timestamp() as f64,
+                "yesterday",
+            ),
             entry(local_time(2026, 3, 3, 12, 0).timestamp() as f64, "older"),
         ];
         let groups = group_by_day(entries, now);
         assert_eq!(
-            groups.iter().map(|(title, _)| title.as_str()).collect::<Vec<_>>(),
+            groups
+                .iter()
+                .map(|(title, _)| title.as_str())
+                .collect::<Vec<_>>(),
             ["Today", "Yesterday", "Mar 3"]
         );
     }
@@ -162,7 +172,11 @@ mod tests {
         let later = local_time(2026, 3, 5, 11, 0).timestamp() as f64;
         let groups = group_by_day(vec![entry(first, "first"), entry(later, "later")], now);
         assert_eq!(
-            groups[0].1.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(),
+            groups[0]
+                .1
+                .iter()
+                .map(|entry| entry.id.as_str())
+                .collect::<Vec<_>>(),
             ["later", "first"]
         );
     }
@@ -171,9 +185,15 @@ mod tests {
     fn keyterm_warning_matches_punctuation_and_intensifier_boundaries() {
         assert!(keyterm_warning("   ").is_none());
         assert!(keyterm_warning("clean phrase").is_none());
-        assert!(keyterm_warning("acme, inc").unwrap().contains("commas and semicolons"));
-        assert!(keyterm_warning("acme; inc").unwrap().contains("commas and semicolons"));
-        assert!(keyterm_warning("plan:5").unwrap().contains("trailing “:number”"));
+        assert!(keyterm_warning("acme, inc")
+            .unwrap()
+            .contains("commas and semicolons"));
+        assert!(keyterm_warning("acme; inc")
+            .unwrap()
+            .contains("commas and semicolons"));
+        assert!(keyterm_warning("plan:5")
+            .unwrap()
+            .contains("trailing “:number”"));
         assert!(keyterm_warning(":55").is_some());
         assert!(keyterm_warning("plan:").is_none());
         assert!(keyterm_warning("plan:5x").is_none());
@@ -192,9 +212,19 @@ mod tests {
         let options = language_options("nova-2", "ar");
         assert_eq!(options[0].value, AUTO_DETECT);
         assert_eq!(
-            options.iter().find(|option| option.value == "ar").unwrap().label,
+            options
+                .iter()
+                .find(|option| option.value == "ar")
+                .unwrap()
+                .label,
             "Arabic (العربية) — not available on Nova 2"
         );
-        assert!(!LANGUAGES.iter().find(|language| language.code == "ar").unwrap().nova2);
+        assert!(
+            !LANGUAGES
+                .iter()
+                .find(|language| language.code == "ar")
+                .unwrap()
+                .nova2
+        );
     }
 }

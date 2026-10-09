@@ -1,5 +1,5 @@
 //! The tray menu as data: order, labels, enabled and checked flags, with no
-//! toolkit types involved. The Tauri shell realises this description as real
+//! toolkit types involved. The Dioxus shell realises this description as real
 //! menu items; the split keeps which item carries the check mark testable
 //! without a display server.
 //!

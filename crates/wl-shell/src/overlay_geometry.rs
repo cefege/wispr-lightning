@@ -24,7 +24,7 @@ pub const INITIAL_WIDTH: f64 = 120.0;
 // Geometry — pure, and therefore testable without a display server
 // ---------------------------------------------------------------------------
 
-/// A rectangle in logical points, top-left origin (the Tauri convention).
+/// A rectangle in logical points, top-left origin.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rect {
     pub x: f64,
@@ -66,9 +66,9 @@ pub fn width_for(state: &OverlayState, elapsed_visible: bool) -> Option<f64> {
 pub fn overlay_frame(work_area: Rect, width: f64) -> Rect {
     Rect {
         x: work_area.x + (work_area.width - width) / 2.0,
-        // AppKit measures y up from the bottom; Tauri measures it down from the
-        // top, so the Swift `minY + 50` becomes "the work area's bottom edge,
-        // less the margin, less our own height".
+        // AppKit measures y up from the bottom, while the overlay coordinate
+        // system measures it down from the top, so the Swift `minY + 50` becomes
+        // "the work area's bottom edge, less the margin, less our own height".
         y: work_area.y + work_area.height - BOTTOM_MARGIN - OVERLAY_HEIGHT,
         width,
         height: OVERLAY_HEIGHT,

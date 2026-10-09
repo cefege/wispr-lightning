@@ -3,7 +3,13 @@ use std::{sync::Arc, time::Duration};
 use dioxus::prelude::*;
 use wl_shell::{ops, state::AppState};
 
-use crate::{bus::{Bus, DEVICES_CHANGED}, ui::{store::SettingsStore, widgets::{ErrorBanner, KeyCapture, SettingRow}}};
+use crate::{
+    bus::{Bus, DEVICES_CHANGED},
+    ui::{
+        store::SettingsStore,
+        widgets::{ErrorBanner, KeyCapture, SettingRow},
+    },
+};
 
 #[component]
 pub fn view() -> Element {
@@ -117,10 +123,17 @@ pub fn view() -> Element {
         }
     }
 }
-fn refresh_devices(state: Arc<AppState>, mut devices: Signal<Vec<ops::InputDeviceInfo>>, mut error: Signal<Option<String>>) {
+fn refresh_devices(
+    state: Arc<AppState>,
+    mut devices: Signal<Vec<ops::InputDeviceInfo>>,
+    mut error: Signal<Option<String>>,
+) {
     spawn(async move {
         match tokio::task::spawn_blocking(move || ops::audio_devices(&state)).await {
-            Ok(Ok(found)) => { devices.set(found); error.set(None); }
+            Ok(Ok(found)) => {
+                devices.set(found);
+                error.set(None);
+            }
             Ok(Err(e)) => error.set(Some(e.to_string())),
             Err(e) => error.set(Some(e.to_string())),
         }

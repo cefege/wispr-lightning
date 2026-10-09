@@ -15,6 +15,7 @@ use crate::ui::{
 
 const PAGE: i64 = 50;
 
+#[component]
 pub fn view() -> Element {
     let state = use_context::<Arc<AppState>>();
     let bus = use_context::<Arc<Bus>>();
@@ -31,10 +32,12 @@ pub fn view() -> Element {
     let load_state = state.clone();
     let load = use_callback(move |()| {
         loading_more.set(false);
-        let stamp = generation() + 1;
+        // `peek`: the mount effect calls this, and subscribing it to the
+        // signals written here would re-run it forever.
+        let stamp = *generation.peek() + 1;
         generation.set(stamp);
         loading.set(true);
-        let search = query().trim().to_owned();
+        let search = query.peek().trim().to_owned();
         let unfiltered = search.is_empty();
         let state = load_state.clone();
         spawn(async move {
@@ -101,10 +104,11 @@ pub fn view() -> Element {
         let state = load_more_state.clone();
         loading_more.set(true);
         spawn(async move {
-            let result = tokio::task::spawn_blocking(move || ops::history_list(&state, PAGE, offset))
-                .await
-                .map_err(|e| e.to_string())
-                .and_then(|result| result);
+            let result =
+                tokio::task::spawn_blocking(move || ops::history_list(&state, PAGE, offset))
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|result| result);
             if generation() == stamp {
                 match result {
                     Ok(rows) => {
@@ -141,14 +145,17 @@ pub fn view() -> Element {
 
     let delete_state = state.clone();
     let delete = use_callback(move |()| {
-        let Some(entry) = pending_delete() else { return; };
+        let Some(entry) = pending_delete() else {
+            return;
+        };
         pending_delete.set(None);
         let state = delete_state.clone();
         spawn(async move {
-            let result = tokio::task::spawn_blocking(move || ops::history_delete(&state, &entry.id))
-                .await
-                .map_err(|e| e.to_string())
-                .and_then(|result| result);
+            let result =
+                tokio::task::spawn_blocking(move || ops::history_delete(&state, &entry.id))
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|result| result);
             match result {
                 Ok(()) => refresh.call(()),
                 Err(message) => error.set(Some(message)),

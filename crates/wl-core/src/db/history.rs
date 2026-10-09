@@ -100,7 +100,6 @@ impl HistoryStore {
         )?)
     }
 
-
     /// Hard-delete one entry. History is the user's record of what they said;
     /// deleting means deleting.
     pub fn delete_entry(&self, id: &str) -> Result<()> {
@@ -191,9 +190,15 @@ mod tests {
     #[test]
     fn totals_since_includes_the_boundary_and_excludes_older_rows() {
         let store = store();
-        store.add_entry_at(&transcript("OLD", "old", 3), 99.0).expect("old");
-        store.add_entry_at(&transcript("AT", "at", 5), 100.0).expect("at");
-        store.add_entry_at(&transcript("NEW", "new", 7), 101.0).expect("new");
+        store
+            .add_entry_at(&transcript("OLD", "old", 3), 99.0)
+            .expect("old");
+        store
+            .add_entry_at(&transcript("AT", "at", 5), 100.0)
+            .expect("at");
+        store
+            .add_entry_at(&transcript("NEW", "new", 7), 101.0)
+            .expect("new");
 
         assert_eq!(store.totals_since(100.0).expect("totals"), (2, 12));
     }

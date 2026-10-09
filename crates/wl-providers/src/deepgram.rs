@@ -537,12 +537,13 @@ impl DeepgramProvider {
         let key = self.key()?;
         let base = self.config.base_url.trim_end_matches('/');
 
-        let projects: ProjectList = self.management_get(&format!("{base}/v1/projects"), &key).await?;
-        let project = projects
-            .projects
-            .into_iter()
-            .next()
-            .ok_or_else(|| ProviderError::ServerError("Deepgram returned no projects".into()))?;
+        let projects: ProjectList = self
+            .management_get(&format!("{base}/v1/projects"), &key)
+            .await?;
+        let project =
+            projects.projects.into_iter().next().ok_or_else(|| {
+                ProviderError::ServerError("Deepgram returned no projects".into())
+            })?;
 
         let balances: BalanceList = self
             .management_get(
@@ -2352,7 +2353,10 @@ mod tests {
     /// the shipped default, which is the auto-detect sentinel.
     #[test]
     fn a_fresh_profile_detects_the_language() {
-        assert_eq!(settings_language(&Settings::default()), LanguageMode::Detect);
+        assert_eq!(
+            settings_language(&Settings::default()),
+            LanguageMode::Detect
+        );
     }
 
     #[test]

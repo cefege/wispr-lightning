@@ -4,7 +4,11 @@ use dioxus::prelude::*;
 use wl_core::db::models::NoteEntry;
 use wl_shell::{ops, state::AppState};
 
-use crate::ui::{self, icons::{Icon, IconName}, widgets::{EmptyState, SearchField}};
+use crate::ui::{
+    self,
+    icons::{Icon, IconName},
+    widgets::{EmptyState, SearchField},
+};
 
 #[derive(Clone, PartialEq)]
 struct Editing {
@@ -33,9 +37,22 @@ pub fn view() -> Element {
             let state = state.clone();
             let query = query().trim().to_string();
             spawn(async move {
-                let result = tokio::task::spawn_blocking(move || ops::notes_list(&state, if query.is_empty() { None } else { Some(query) })).await.map_err(|e| e.to_string()).and_then(|r| r);
-                if generation() != stamp { return; }
-                match result { Ok(rows) => { notes.set(rows); error.set(None); }, Err(e) => error.set(Some(e)) }
+                let result = tokio::task::spawn_blocking(move || {
+                    ops::notes_list(&state, if query.is_empty() { None } else { Some(query) })
+                })
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r);
+                if generation() != stamp {
+                    return;
+                }
+                match result {
+                    Ok(rows) => {
+                        notes.set(rows);
+                        error.set(None);
+                    }
+                    Err(e) => error.set(Some(e)),
+                }
                 loading.set(false);
             });
         }
@@ -57,9 +74,19 @@ pub fn view() -> Element {
             let state = state.clone();
             let mut load = load.clone();
             spawn(async move {
-                let result = tokio::task::spawn_blocking(move || ops::notes_add(&state, "", "")).await.map_err(|e| e.to_string()).and_then(|r| r);
+                let result = tokio::task::spawn_blocking(move || ops::notes_add(&state, "", ""))
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r);
                 match result {
-                    Ok(note) => { load(); editing.set(Some(Editing { id: note.id, title: note.title, content: note.content })); }
+                    Ok(note) => {
+                        load();
+                        editing.set(Some(Editing {
+                            id: note.id,
+                            title: note.title,
+                            content: note.content,
+                        }));
+                    }
                     Err(e) => error.set(Some(e)),
                 }
             });
@@ -69,13 +96,24 @@ pub fn view() -> Element {
         let state = state.clone();
         let load = load.clone();
         move || {
-            let Some(draft) = editing() else { return; };
+            let Some(draft) = editing() else {
+                return;
+            };
             editing.set(None);
             let state = state.clone();
             let mut load = load.clone();
             spawn(async move {
-                let result = tokio::task::spawn_blocking(move || ops::notes_update(&state, &draft.id, &draft.title, &draft.content)).await.map_err(|e| e.to_string()).and_then(|r| r);
-                if let Err(e) = result { error.set(Some(e)); } else { load(); }
+                let result = tokio::task::spawn_blocking(move || {
+                    ops::notes_update(&state, &draft.id, &draft.title, &draft.content)
+                })
+                .await
+                .map_err(|e| e.to_string())
+                .and_then(|r| r);
+                if let Err(e) = result {
+                    error.set(Some(e));
+                } else {
+                    load();
+                }
             });
         }
     };
@@ -86,8 +124,15 @@ pub fn view() -> Element {
             let state = state.clone();
             let mut load = load.clone();
             spawn(async move {
-                let result = tokio::task::spawn_blocking(move || ops::notes_delete(&state, &id)).await.map_err(|e| e.to_string()).and_then(|r| r);
-                if let Err(e) = result { error.set(Some(e)); } else { load(); }
+                let result = tokio::task::spawn_blocking(move || ops::notes_delete(&state, &id))
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r);
+                if let Err(e) = result {
+                    error.set(Some(e));
+                } else {
+                    load();
+                }
             });
         }
     };

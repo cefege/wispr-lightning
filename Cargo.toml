@@ -1,10 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/wl-core", "crates/wl-providers", "crates/wl-platform", "crates/wl-shell", "src-tauri"]
-# The Dioxus shell is its own workspace until the cutover: dioxus-desktop 0.7
-# pins wry 0.53 and Tauri 2.11 needs wry 0.55, whose `links`-unique system
-# crates cannot share one lockfile.
-exclude = ["app"]
+members = ["crates/wl-core", "crates/wl-providers", "crates/wl-platform", "crates/wl-shell", "app"]
 
 [workspace.package]
 version = "2.0.0"
@@ -34,8 +30,8 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["c
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
 
-# Pinned to 0.61 to match the version Tauri 2.11 links: a different major
-# gives us an incompatible `HWND` type across the crate boundary.
+# Pinned to 0.61 to match the version tao/wry link, keeping the `HWND` type
+# compatible across the crate boundary.
 windows = "0.61"
 # `#[implement]` expands to absolute `::windows_core::` paths, so any crate
 # that implements a COM interface needs windows-core in scope directly — and

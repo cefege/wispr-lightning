@@ -3,7 +3,10 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use wl_shell::{ops, state::AppState};
 
-use crate::ui::{store::SettingsStore, widgets::{ErrorBanner, SettingRow}};
+use crate::ui::{
+    store::SettingsStore,
+    widgets::{ErrorBanner, SettingRow},
+};
 
 #[component]
 pub fn view() -> Element {
@@ -25,10 +28,17 @@ pub fn view() -> Element {
     use_effect(move || refresh_status(mount_state.clone(), status, load_error));
     let configured = status().map(|s| s.configured).unwrap_or(false);
     let supports_nova2 = value.deepgram_model.to_lowercase().starts_with("nova-2");
-    let lang_options = crate::ui::format::language_options(&value.deepgram_model, &value.deepgram_language);
-    let unsupported_name = if value.deepgram_language != "__auto__" && value.deepgram_language != "__multi__" {
-        wl_providers::languages::LANGUAGES.iter().find(|l| l.code == value.deepgram_language && supports_nova2 && !l.nova2).map(|l| l.name)
-    } else { None };
+    let lang_options =
+        crate::ui::format::language_options(&value.deepgram_model, &value.deepgram_language);
+    let unsupported_name =
+        if value.deepgram_language != "__auto__" && value.deepgram_language != "__multi__" {
+            wl_providers::languages::LANGUAGES
+                .iter()
+                .find(|l| l.code == value.deepgram_language && supports_nova2 && !l.nova2)
+                .map(|l| l.name)
+        } else {
+            None
+        };
     let retry_state = state.clone();
     let enter_save_state = state.clone();
     let button_save_state = state.clone();
@@ -93,11 +103,21 @@ pub fn view() -> Element {
     }
 }
 
-fn refresh_status(state: Arc<AppState>, mut status: Signal<Option<ops::DeepgramStatus>>, mut error: Signal<Option<String>>) {
-    spawn(async move { match tokio::task::spawn_blocking(move || ops::deepgram_status(&state)).await {
-        Ok(Ok(value)) => { status.set(Some(value)); error.set(None); },
-        Ok(Err(e)) => error.set(Some(e.to_string())), Err(e) => error.set(Some(e.to_string())),
-    }});
+fn refresh_status(
+    state: Arc<AppState>,
+    mut status: Signal<Option<ops::DeepgramStatus>>,
+    mut error: Signal<Option<String>>,
+) {
+    spawn(async move {
+        match tokio::task::spawn_blocking(move || ops::deepgram_status(&state)).await {
+            Ok(Ok(value)) => {
+                status.set(Some(value));
+                error.set(None);
+            }
+            Ok(Err(e)) => error.set(Some(e.to_string())),
+            Err(e) => error.set(Some(e.to_string())),
+        }
+    });
 }
 #[derive(Clone, Copy)]
 struct KeySaveSignals {
@@ -110,13 +130,16 @@ struct KeySaveSignals {
 }
 
 fn save_key(state: Arc<AppState>, key: String, mut signals: KeySaveSignals) {
-    if key.trim().is_empty() { return; }
+    if key.trim().is_empty() {
+        return;
+    }
     signals.busy.set(true);
     signals.error.set(None);
     spawn(async move {
         let request_state = state.clone();
         let raw = key.clone();
-        let result = tokio::task::spawn_blocking(move || ops::deepgram_key_save(&request_state, &raw)).await;
+        let result =
+            tokio::task::spawn_blocking(move || ops::deepgram_key_save(&request_state, &raw)).await;
         match result {
             Ok(Ok(())) => {
                 signals.key.set(String::new());
@@ -129,18 +152,66 @@ fn save_key(state: Arc<AppState>, key: String, mut signals: KeySaveSignals) {
         signals.busy.set(false);
     });
 }
-fn clear_key(state: Arc<AppState>, mut key: Signal<String>, mut busy: Signal<bool>, mut error: Signal<Option<String>>, mut health: Signal<Option<ops::DeepgramHealth>>, status: Signal<Option<ops::DeepgramStatus>>, load_error: Signal<Option<String>>) {
-    busy.set(true); error.set(None);
-    spawn(async move { let request_state = state.clone(); let result = tokio::task::spawn_blocking(move || ops::deepgram_key_clear(&request_state)).await;
-        match result { Ok(Ok(())) => { key.set(String::new()); health.set(None); refresh_status(state, status, load_error); }, Ok(Err(e)) => error.set(Some(e.to_string())), Err(e) => error.set(Some(e.to_string())) }
+fn clear_key(
+    state: Arc<AppState>,
+    mut key: Signal<String>,
+    mut busy: Signal<bool>,
+    mut error: Signal<Option<String>>,
+    mut health: Signal<Option<ops::DeepgramHealth>>,
+    status: Signal<Option<ops::DeepgramStatus>>,
+    load_error: Signal<Option<String>>,
+) {
+    busy.set(true);
+    error.set(None);
+    spawn(async move {
+        let request_state = state.clone();
+        let result =
+            tokio::task::spawn_blocking(move || ops::deepgram_key_clear(&request_state)).await;
+        match result {
+            Ok(Ok(())) => {
+                key.set(String::new());
+                health.set(None);
+                refresh_status(state, status, load_error);
+            }
+            Ok(Err(e)) => error.set(Some(e.to_string())),
+            Err(e) => error.set(Some(e.to_string())),
+        }
         busy.set(false);
     });
 }
-fn load_balance(state: Arc<AppState>, mut balance: Signal<Option<ops::DeepgramBalance>>, mut error: Signal<Option<String>>, mut busy: Signal<bool>) {
-    busy.set(true); error.set(None);
-    spawn(async move { match ops::deepgram_balance(&state).await { Ok(value) => balance.set(Some(value)), Err(e) => { balance.set(None); error.set(Some(e.to_string())); } } busy.set(false); });
-}
-fn test_connection(state: Arc<AppState>, mut health: Signal<Option<ops::DeepgramHealth>>, mut busy: Signal<bool>) {
+fn load_balance(
+    state: Arc<AppState>,
+    mut balance: Signal<Option<ops::DeepgramBalance>>,
+    mut error: Signal<Option<String>>,
+    mut busy: Signal<bool>,
+) {
     busy.set(true);
-    spawn(async move { match ops::deepgram_health(&state).await { Ok(value) => health.set(Some(value)), Err(e) => health.set(Some(ops::DeepgramHealth { ok: false, message: e.to_string() })) } busy.set(false); });
+    error.set(None);
+    spawn(async move {
+        match ops::deepgram_balance(&state).await {
+            Ok(value) => balance.set(Some(value)),
+            Err(e) => {
+                balance.set(None);
+                error.set(Some(e.to_string()));
+            }
+        }
+        busy.set(false);
+    });
+}
+fn test_connection(
+    state: Arc<AppState>,
+    mut health: Signal<Option<ops::DeepgramHealth>>,
+    mut busy: Signal<bool>,
+) {
+    busy.set(true);
+    spawn(async move {
+        match ops::deepgram_health(&state).await {
+            Ok(value) => health.set(Some(value)),
+            Err(e) => health.set(Some(ops::DeepgramHealth {
+                ok: false,
+                message: e.to_string(),
+            })),
+        }
+        busy.set(false);
+    });
 }

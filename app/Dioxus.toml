@@ -1,2 +1,69 @@
 [application]
 name = "Wispr Lightning"
+
+[bundle]
+identifier = "com.wisprlightning.app"
+publisher = "Wispr Lightning"
+icon = ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+short_description = "Fast push-to-talk dictation"
+long_description = "A fast, native push-to-talk dictation app. Hold a hotkey, speak, and the transcribed text is inserted wherever your cursor is."
+copyright = "Copyright (c) 2026"
+category = "Productivity"
+
+[bundle.macos]
+minimum_system_version = "13.0"
+entitlements = "entitlements.plist"
+info_plist_path = "Info.plist"
+hardened_runtime = true
+
+[bundle.macos.files]
+"Resources/resources/sounds/default/dictation-start.wav" = "resources/sounds/default/dictation-start.wav"
+"Resources/resources/sounds/default/dictation-stop.wav" = "resources/sounds/default/dictation-stop.wav"
+"Resources/resources/sounds/default/paste.wav" = "resources/sounds/default/paste.wav"
+"Resources/resources/sounds/v1/Notification.wav" = "resources/sounds/v1/Notification.wav"
+"Resources/resources/sounds/v1/achievement.wav" = "resources/sounds/v1/achievement.wav"
+"Resources/resources/sounds/v1/dictation-start.wav" = "resources/sounds/v1/dictation-start.wav"
+"Resources/resources/sounds/v1/dictation-stop.wav" = "resources/sounds/v1/dictation-stop.wav"
+"Resources/resources/sounds/v1/paste.wav" = "resources/sounds/v1/paste.wav"
+"Resources/resources/sounds/v1/popo-lock.wav" = "resources/sounds/v1/popo-lock.wav"
+"Resources/resources/sounds/v2/Notification.wav" = "resources/sounds/v2/Notification.wav"
+"Resources/resources/sounds/v2/achievement.wav" = "resources/sounds/v2/achievement.wav"
+"Resources/resources/sounds/v2/dictation-start.wav" = "resources/sounds/v2/dictation-start.wav"
+"Resources/resources/sounds/v2/dictation-stop.wav" = "resources/sounds/v2/dictation-stop.wav"
+"Resources/resources/sounds/v2/paste.wav" = "resources/sounds/v2/paste.wav"
+"Resources/resources/sounds/v2/popo-lock.wav" = "resources/sounds/v2/popo-lock.wav"
+"Resources/resources/sounds/v3/Notification.wav" = "resources/sounds/v3/Notification.wav"
+"Resources/resources/sounds/v3/achievement.wav" = "resources/sounds/v3/achievement.wav"
+"Resources/resources/sounds/v3/dictation-start.wav" = "resources/sounds/v3/dictation-start.wav"
+"Resources/resources/sounds/v3/dictation-stop.wav" = "resources/sounds/v3/dictation-stop.wav"
+"Resources/resources/sounds/v3/paste.wav" = "resources/sounds/v3/paste.wav"
+"Resources/resources/sounds/v3/popo-lock.wav" = "resources/sounds/v3/popo-lock.wav"
+
+[windows]
+resources = [
+    "resources/sounds/default/dictation-start.wav",
+    "resources/sounds/default/dictation-stop.wav",
+    "resources/sounds/default/paste.wav",
+    "resources/sounds/v1/Notification.wav",
+    "resources/sounds/v1/achievement.wav",
+    "resources/sounds/v1/dictation-start.wav",
+    "resources/sounds/v1/dictation-stop.wav",
+    "resources/sounds/v1/paste.wav",
+    "resources/sounds/v1/popo-lock.wav",
+    "resources/sounds/v2/Notification.wav",
+    "resources/sounds/v2/achievement.wav",
+    "resources/sounds/v2/dictation-start.wav",
+    "resources/sounds/v2/dictation-stop.wav",
+    "resources/sounds/v2/paste.wav",
+    "resources/sounds/v2/popo-lock.wav",
+    "resources/sounds/v3/Notification.wav",
+    "resources/sounds/v3/achievement.wav",
+    "resources/sounds/v3/dictation-start.wav",
+    "resources/sounds/v3/dictation-stop.wav",
+    "resources/sounds/v3/paste.wav",
+    "resources/sounds/v3/popo-lock.wav",
+]
+
+
+[windows.nsis]
+install_mode = "CurrentUser"

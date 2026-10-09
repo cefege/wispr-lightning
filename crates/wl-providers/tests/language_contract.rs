@@ -53,7 +53,6 @@ fn the_picker_still_calls_zhcn_simplified_which_is_why_it_maps_to_zh_hans() {
 
 #[test]
 fn every_code_the_crate_translates_still_exists_in_the_picker() {
-
     // Each remapped code, with the picker word that establishes its meaning.
     // A code that vanishes leaves a dead arm; a code whose meaning drifts makes
     // the translation wrong. Both matter, so both are asserted.
@@ -80,14 +79,12 @@ fn every_code_the_crate_translates_still_exists_in_the_picker() {
     }
 }
 
-
-
 /// `hien` ("Hinglish") is deliberately absent from the Rust language catalog.
-
+///
 /// It never selected a Hindi-English mode: it translates to `multi`, the
 /// code-switching pseudo-language, which is exactly what Auto-detect sends. It
 /// was a third label for one behaviour, so the catalog stopped offering it.
-
+///
 /// The translation stays. Settings files written before it was retired still
 /// hold `hien`, and those users keep the behaviour they chose rather than
 /// having their language silently reinterpreted as a literal `hien` tag that
@@ -102,10 +99,10 @@ fn the_retired_hinglish_code_still_translates_for_settings_that_hold_it() {
     );
 }
 /// `auto` is a legacy settings value, no longer emitted by the Rust UI.
-
+///
 /// It was the shared picker's detect sentinel. Deepgram's own picker uses
 /// `__auto__`, so nothing in the UI writes `auto` any more.
-
+///
 /// The mapping stays because settings files predating the cutover still hold
 /// it, in `languages` lists that `migrate` folds into `deepgramLanguage`.
 /// Without the special case it would fall through to the single-language arm

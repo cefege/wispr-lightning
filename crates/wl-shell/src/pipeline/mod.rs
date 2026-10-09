@@ -11,7 +11,7 @@
 //! 1. **The state machine is not re-implemented.** [`wl_core::fsm::Machine`] is
 //!    pure and already covers the tap-vs-hold timing table. This module only
 //!    executes the [`Action`]s it emits.
-//! 2. **Every dependency is a trait.** No Tauri type appears below, so the
+//! 2. **Every dependency is a trait.** No Dioxus type appears below, so the
 //!    whole pipeline runs headless against fakes — see `pipeline/tests.rs`.
 //! 3. **One task owns the FSM.** Recording state is mutated only by the actor
 //!    loop, so there is no lock ordering to get wrong. Work that can be slow
@@ -126,7 +126,7 @@ fn processing_timeout(base: Duration, duration_secs: f64) -> Duration {
 
 /// Everything the pipeline drives. Assembled by the app shell from its own
 /// state; kept as a plain struct so this module never has to know that
-/// `AppState` (or Tauri) exists.
+/// `AppState` (or the Dioxus shell) exists.
 pub struct PipelineDeps {
     pub settings: Arc<RwLock<Settings>>,
     pub platform: Platform,

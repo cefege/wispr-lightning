@@ -7,9 +7,9 @@
 //! UI calls instead of screenshotting a window.
 
 /// What the recording overlay is currently displaying.
-/// The default externally-tagged serde representation is exactly the wire
-/// shape the frontend expects: `"Hidden"`, `{"Retrying":{"attempt":1,"of":3}}`.
-/// Do not add serde attributes here without updating `ui/src/lib/ipc.ts`.
+/// The default externally-tagged serde representation is exactly the shape
+/// decoded by the Dioxus overlay: `"Hidden"`, `{"Retrying":{"attempt":1,"of":3}}`.
+/// Keep the JSON shape stable when changing these variants.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum OverlayState {
     Hidden,

@@ -89,11 +89,10 @@ impl SettingsStore {
     pub async fn complete_onboarding(&mut self) -> Result<(), String> {
         self.flush().await?;
         let state = self.state.read().clone();
-        let completed = tokio::task::spawn_blocking(move || {
-            wl_shell::ops::onboarding_complete(&state)
-        })
-        .await
-        .map_err(|error| format!("could not complete onboarding: {error}"))??;
+        let completed =
+            tokio::task::spawn_blocking(move || wl_shell::ops::onboarding_complete(&state))
+                .await
+                .map_err(|error| format!("could not complete onboarding: {error}"))??;
         self.value.set(completed.clone());
         self.last_sent.set(completed);
         self.save_error.set(None);
@@ -108,7 +107,7 @@ impl SettingsStore {
 
 /// Install one store per main-window document and follow changes from other
 /// app surfaces without overwriting a local debounce.
-pub fn provide() {
+pub fn use_provide_settings_store() {
     let state = use_context::<Arc<AppState>>();
     let bus = use_context::<Arc<Bus>>();
     let store = use_context_provider(|| SettingsStore::new(state.settings(), state));

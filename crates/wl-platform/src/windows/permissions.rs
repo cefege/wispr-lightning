@@ -131,8 +131,8 @@ fn consent_value(key: windows::core::PCWSTR) -> Option<String> {
 /// console window, which on a menu-bar app looks like a crash.
 ///
 /// It goes through [`super::on_sta`] because `open_settings` is reached from an
-/// async Tauri command — a tokio worker, which is in this process's implicit
-/// MTA — and the shell cannot marshal its objects into one. That failure is
+/// async app task — a tokio worker, which is in this process's implicit MTA —
+/// and the shell cannot marshal its objects into one. That failure is
 /// silent apart from the return value, and it would take away the only route a
 /// user has to a microphone toggle they have already been told is off.
 fn open_uri(uri: &str) {

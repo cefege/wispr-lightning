@@ -1,5 +1,5 @@
-//! Remembered geometry of the managed windows (SET-007), replacing
-//! `tauri-plugin-window-state`. The overlay is never recorded: its frame is
+//! Remembered geometry of managed windows (SET-007).
+//! The overlay is never recorded: its frame is
 //! recomputed from the work area on every show.
 //!
 //! Stored as `{label: {x, y, width, height}}` in logical points. A missing or

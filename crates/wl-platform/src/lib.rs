@@ -2,7 +2,7 @@
 //!
 //! This crate is the only place that may talk to AppKit, CoreAudio, Win32 or
 //! UI Automation. Each capability is a trait here with one implementation per
-//! target, so `wl-core` and the Tauri layer stay portable and testable.
+//! target, so `wl-core` and the Dioxus app stay portable and testable.
 //!
 //! Every trait is object-safe and `Send + Sync`: the orchestrator holds them
 //! behind `Arc<dyn _>` and calls them from worker tasks.

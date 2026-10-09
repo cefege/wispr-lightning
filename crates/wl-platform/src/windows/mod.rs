@@ -4,8 +4,8 @@
 //! them:
 //!
 //! * **The process-wide MTA.** Every WinRT call (OCR, SMTC) fails with
-//!   `CO_E_NOTINITIALIZED` on a thread with no apartment, and Tauri owns the
-//!   main thread as an STA for WebView2. `CoIncrementMTAUsage` gives the
+//!   `CO_E_NOTINITIALIZED` on a thread with no apartment, and the Dioxus main
+//!   thread is an STA for WebView2. `CoIncrementMTAUsage` gives the
 //!   process an implicit MTA that uninitialised threads join, which is the
 //!   only apartment strategy that does not fight the UI thread.
 //! * **Bounded calls.** A wedged shell component must never stall the

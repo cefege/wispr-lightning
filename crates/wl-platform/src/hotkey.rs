@@ -2,8 +2,8 @@
 //!
 //! The requirement that rules out most crates: the app must see **press and
 //! release of a bare modifier** (Left Control by default) while another
-//! application has focus. `global-hotkey` and `tauri-plugin-global-shortcut`
-//! cannot express that — their `HotKey` requires a non-modifier `Code`.
+//! application has focus. `global-hotkey` and framework-provided shortcut
+//! plugins cannot express that — their `HotKey` requires a non-modifier `Code`.
 
 use crossbeam_channel::Receiver;
 use wl_core::settings::Hotkey;

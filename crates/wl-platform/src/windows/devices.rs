@@ -15,7 +15,7 @@
 //!
 //! **Apartment.** Registration joins whatever apartment the process already
 //! has: [`super::ensure_mta`] gives every COM-uninitialised thread an implicit
-//! MTA, and Tauri owns the main thread as an STA for WebView2. A
+//! MTA, and the Dioxus main thread is an STA for WebView2. A
 //! `CoInitializeEx` here would either fail with `RPC_E_CHANGED_MODE` on the UI
 //! thread or, worse, succeed on a worker and pin an apartment nobody pumps
 //! messages for.

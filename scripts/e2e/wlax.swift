@@ -17,7 +17,7 @@
 //   sheets <pid>                  — roles of the window's sheets, if any
 //
 // Matching is case-insensitive and compares against title, value, description
-// and the accessibility label, because a Svelte button's text can land in any
+// and the accessibility label, because a Dioxus button's text can land in any
 // of them depending on how WebKit maps the element.
 
 import ApplicationServices

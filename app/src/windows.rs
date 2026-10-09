@@ -62,7 +62,8 @@ thread_local! {
 
 /// Show the main window, creating it on first use and navigating when reused.
 pub async fn open(section: Option<Section>, state: Arc<AppState>, bus: Arc<Bus>) {
-    let existing = WINDOW.with_borrow(|window| window.as_ref().and_then(WeakDesktopContext::upgrade));
+    let existing =
+        WINDOW.with_borrow(|window| window.as_ref().and_then(WeakDesktopContext::upgrade));
     if let Some(context) = existing {
         context.window.set_visible(true);
         context.window.set_minimized(false);
@@ -76,18 +77,13 @@ pub async fn open(section: Option<Section>, state: Arc<AppState>, bus: Arc<Bus>)
 
     let initial = section.unwrap_or(Section::Home);
     let show_in_dock = *bus.show_in_dock.borrow();
-    let dom = VirtualDom::new_with_props(
-        ManagedWindow,
-        ManagedWindowProps { initial },
-    )
-    .with_root_context(state)
-    .with_root_context(bus);
+    let dom = VirtualDom::new_with_props(ManagedWindow, ManagedWindowProps { initial })
+        .with_root_context(state)
+        .with_root_context(bus);
+    // Shown by `ManagedWindow` once its webview has initialised: dioxus-desktop
+    // reapplies the root (overlay) window's hidden start state at that point.
     let context = window().new_window(dom, config(show_in_dock)).await;
-    context.window.set_visible(true);
-    context.window.set_minimized(false);
-    context.window.set_focus();
     WINDOW.with_borrow_mut(|window| *window = Some(std::rc::Rc::downgrade(&context)));
-    activate_app();
 }
 
 fn config(show_in_dock: bool) -> Config {
@@ -194,11 +190,28 @@ fn ManagedWindow(props: ManagedWindowProps) -> Element {
         }
     });
 
+    // dioxus-desktop 0.7 hides every new webview when it initialises if the
+    // root window started hidden (the overlay does), and a hidden webview
+    // never acknowledges edits, so this window's effects and tasks would never
+    // run to undo it. This handler is registered during the rebuild inside
+    // that initialisation, so the first event it receives is dispatched after
+    // the hide: show the window there, outside the stalled VirtualDom.
+    let mut shown = false;
     use_wry_event_handler(move |event, _| {
-        let Event::WindowEvent { window_id, event, .. } = event else {
+        let desktop = window();
+        if !shown {
+            shown = true;
+            desktop.window.set_visible(true);
+            desktop.window.set_minimized(false);
+            desktop.window.set_focus();
+            activate_app();
+        }
+        let Event::WindowEvent {
+            window_id, event, ..
+        } = event
+        else {
             return;
         };
-        let desktop = window();
         if *window_id != desktop.window.id() {
             return;
         }
