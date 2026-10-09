@@ -44,12 +44,14 @@ html[data-theme="light"] [class~="dxc-system"] {
   --primary-color-3: var(--dark, var(--elevated)) var(--light, var(--elevated));
   --primary-color-4: var(--dark, var(--control)) var(--light, var(--control));
   --primary-color-5: var(--dark, var(--control-hover)) var(--light, var(--control-hover));
-  --primary-color-6: var(--dark, var(--selected)) var(--light, var(--selected));
+  /* Border role in every component (inputs, cards, dialogs, separators). */
+  --primary-color-6: var(--dark, var(--line-strong)) var(--light, var(--line-strong));
   --primary-color-7: var(--dark, var(--line)) var(--light, var(--line));
 
   --secondary-color: var(--dark, var(--fg)) var(--light, var(--fg));
   --secondary-color-1: var(--dark, var(--fg)) var(--light, var(--fg));
-  --secondary-color-2: var(--dark, var(--fg-muted)) var(--light, var(--fg-muted));
+  /* Accent role: primary button fill, link text, filled badge. */
+  --secondary-color-2: var(--dark, var(--accent)) var(--light, var(--accent));
   --secondary-color-3: var(--dark, var(--fg-muted)) var(--light, var(--fg-muted));
   --secondary-color-4: var(--dark, var(--fg-subtle)) var(--light, var(--fg-subtle));
   --secondary-color-5: var(--dark, var(--fg-subtle)) var(--light, var(--fg-subtle));
@@ -65,4 +67,27 @@ html[data-theme="light"] [class~="dxc-system"] {
   --contrast-error-color: var(--dark, var(--fg)) var(--light, var(--fg));
   --primary-info-color: var(--dark, var(--surface)) var(--light, var(--surface));
   --secondary-info-color: var(--dark, var(--fg-muted)) var(--light, var(--fg-muted));
+}
+
+/* App overrides for generated component styles. The components' own classes
+ * are CSS-module hashed, so these target the primitives' stable attributes;
+ * each selector out-ranks the module rule it replaces by specificity. */
+
+/* Switch: neutral track off, accent track on, white thumb in both modes. */
+button[role="switch"][data-state="unchecked"] {
+  background-color: var(--line-strong);
+}
+
+button[role="switch"][data-state="checked"] {
+  background-color: var(--accent);
+}
+
+button[role="switch"][data-state] > span[class] {
+  background-color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+/* Accent fills take the contrast-picked accent text colour. */
+:is(button, span)[data-style="primary"][class] {
+  color: var(--accent-text);
 }
