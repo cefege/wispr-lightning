@@ -112,9 +112,12 @@ pub fn view() -> Element {
                 h2 { class: "m-0 text-sm font-semibold", "Input Device" }
                 if let Some(message) = device_error() { ErrorBanner { message, on_retry: Some(EventHandler::new(move |_| refresh_devices(retry_state.clone(), devices, device_error))) } }
                 div { class: "flex items-center gap-2",
-                    select { class: "h-9 min-w-56 rounded-md border border-line bg-control px-2", value: "{settings.mic_device_id.clone().unwrap_or_default()}", onchange: move |e| { let id=e.value(); let name=devices.read().iter().find(|d| d.id==id).map(|d| d.name.clone()); let mut s=store; s.update(|s| {s.mic_device_id=if id.is_empty(){None}else{Some(id)};s.mic_device_name=name;}); },
-                        option { value: "", "System Default" }
-                        for d in devices.read().iter() { option { value: "{d.id}", "{d.name}" } }
+                    // `selected` per option, not `value` on the select: the
+                    // device list arrives after the first render, and a value
+                    // set before its option exists is not re-applied.
+                    select { class: "h-9 min-w-56 rounded-md border border-line bg-control px-2", onchange: move |e| { let id=e.value(); let name=devices.read().iter().find(|d| d.id==id).map(|d| d.name.clone()); let mut s=store; s.update(|s| {s.mic_device_id=if id.is_empty(){None}else{Some(id)};s.mic_device_name=name;}); },
+                        option { value: "", selected: settings.mic_device_id.is_none(), "System Default" }
+                        for d in devices.read().iter() { option { value: "{d.id}", selected: settings.mic_device_id.as_deref() == Some(d.id.as_str()), "{d.name}" } }
                     }
                     crate::components::button::Button { variant: crate::components::button::ButtonVariant::Secondary, onclick: move |_| refresh_devices(refresh_state.clone(), devices, device_error), "Refresh" }
                 }

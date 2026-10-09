@@ -115,9 +115,9 @@ pub fn view() -> Element {
                 hr { class: "my-2 border-line" }
                 div { class: "flex flex-wrap items-center gap-2",
                     label { class: "mr-auto", "Sound pack" }
+                    // `selected` per option: the packs load after first render.
                     select {
                         class: "h-9 rounded-md border border-line bg-control px-2",
-                        value: settings.selected_sound_pack.clone().unwrap_or_default(),
                         onchange: move |event| {
                             let pack = event.value();
                             let mut store = store;
@@ -126,9 +126,9 @@ pub fn view() -> Element {
                                     if pack.is_empty() { None } else { Some(pack) };
                             });
                         },
-                        option { value: "", "Default" }
+                        option { value: "", selected: settings.selected_sound_pack.is_none(), "Default" }
                         for pack in options.iter() {
-                            option { value: "{pack}", "{capitalize(pack)}" }
+                            option { value: "{pack}", selected: settings.selected_sound_pack.as_deref() == Some(pack.as_str()), "{capitalize(pack)}" }
                         }
                     }
                     crate::components::button::Button {
