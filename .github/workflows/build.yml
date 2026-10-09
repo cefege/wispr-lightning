@@ -63,6 +63,16 @@ jobs:
           echo "$dir: $count WAV files"
           test "$count" = 21
 
+      - name: Check installer size
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          installer=$(ls target/dx/wispr-lightning/bundle/windows/nsis/*-setup.exe)
+          size=$(( $(stat -c %s "$installer") / 1048576 ))
+          echo "$installer: ${size} MB"
+          # The full offline WebView2 installer adds ~180 MB; the app is far smaller.
+          test "$size" -lt 50
+
       - uses: actions/upload-artifact@v4
         with:
           name: wispr-lightning-${{ matrix.name }}

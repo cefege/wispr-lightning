@@ -21,5 +21,11 @@ hardened_runtime = true
 # share file names.
 
 # dx's bundler reads `bundle.windows`; a top-level `[windows]` table is ignored.
+[bundle.windows]
+# dx defaults to embedding the ~180 MB offline WebView2 installer. Windows 11
+# and current Windows 10 already ship WebView2; the ~2 MB bootstrapper installs
+# it silently only where it is missing.
+webview_install_mode = { EmbedBootstrapper = { silent = true } }
+
 [bundle.windows.nsis]
 install_mode = "CurrentUser"
