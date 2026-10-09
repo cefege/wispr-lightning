@@ -1,0 +1,80 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  DX_VERSION: 0.7.10
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-14
+          - name: windows-x64
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: cargo-bins/cargo-binstall@main
+
+      - name: Install Dioxus CLI
+        run: cargo binstall dioxus-cli@${{ env.DX_VERSION }} --no-confirm --locked
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Bundle
+        run: dx bundle --platform desktop --release --package wispr-lightning
+
+      - name: List bundle output
+        shell: bash
+        run: find target/dx/wispr-lightning -path '*/bundle/*' -maxdepth 6 | sort
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wispr-lightning-${{ matrix.name }}
+          path: |
+            target/dx/wispr-lightning/bundle/macos/**/*.dmg
+            target/dx/wispr-lightning/bundle/**/*-setup.exe
+            target/dx/wispr-lightning/bundle/**/*.msi
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**
+          generate_release_notes: true
