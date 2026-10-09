@@ -33,23 +33,17 @@
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow};
 
-use wl_shell::overlay_geometry::{accepts_clicks, overlay_frame, width_for, Rect, OVERLAY_HEIGHT};
+use wl_shell::overlay_geometry::{
+    accepts_clicks, overlay_frame, width_for, Rect, ERROR_DISMISS, INITIAL_WIDTH, OVERLAY_HEIGHT,
+};
 use wl_shell::state::AppState;
 use wl_shell::ui::{Elapsed, OverlayState, Ui};
 
 pub const OVERLAY_LABEL: &str = "overlay";
-
-/// A transient error dismisses itself after exactly this long (OVL-024).
-const ERROR_DISMISS: Duration = Duration::from_millis(3000);
-
-/// Width the overlay is built at, so its first real show is a resize rather
-/// than a creation (OVL-041).
-const INITIAL_WIDTH: f64 = 120.0;
 
 // ---------------------------------------------------------------------------
 // The panel class (macOS)

@@ -2,6 +2,8 @@
 //! placement in the work area, and which states accept clicks. No display
 //! server or window handle is needed, so all of it is testable here.
 
+use std::time::Duration;
+
 use crate::ui::OverlayState;
 
 /// The panel's height never changes (OVL-017).
@@ -10,6 +12,14 @@ pub const OVERLAY_HEIGHT: f64 = 36.0;
 /// Distance from the bottom of the work area to the bottom of the panel, from
 /// the Swift `y = visibleFrame.minY + 50` (ui-spec §4.3).
 pub const BOTTOM_MARGIN: f64 = 50.0;
+
+/// A transient error dismisses itself after exactly this long (OVL-024).
+pub const ERROR_DISMISS: Duration = Duration::from_millis(3000);
+
+/// Width the overlay is built at, so its first real show is a resize rather
+/// than a creation (OVL-041).
+pub const INITIAL_WIDTH: f64 = 120.0;
+
 // ---------------------------------------------------------------------------
 // Geometry — pure, and therefore testable without a display server
 // ---------------------------------------------------------------------------

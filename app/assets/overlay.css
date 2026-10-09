@@ -1,0 +1,381 @@
+/*
+ * Recording overlay.
+ *
+ * Every visual difference between the eight states is expressed here as an
+ * attribute selector on `[data-state]`, so the controller only ever writes two
+ * attributes, two strings, a width and eighteen bar heights. Nothing in this
+ * file hard-codes a colour, a font or a radius; the palette comes from
+ * app.css.
+ */
+
+html,
+body {
+  /* The window itself is transparent (OVL-004): the pill is the only pixel
+     the user ever sees, and anything painted outside it would show up as a
+     hard rectangle floating over their desktop. */
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* The panel is explicitly not draggable by its background (OVL-005). */
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+
+  /* The reference stack switched to `distribution = .equalCentering` for one
+     reason: in Recording and Locked the VU strip is the only visible child,
+     and the default gravity left it hugging the leading edge with dead space
+     on the right. Every other state has the flex-growing `.label` soaking up
+     the free space, so this only ever bites in the two states it fixes. */
+  justify-content: center;
+
+  /* NSStackView spacing 8, edge insets (0, 16, 0, 16) — OVL-009. */
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+
+  /* Height never varies; only the width does (OVL-017). */
+  height: 36px;
+  border-radius: var(--radius-overlay);
+
+  /* `masksToBounds` on the visual effect view. */
+  overflow: hidden;
+
+  /* The window is transparent, so this is what stands in for
+     NSVisualEffectView's `.popover` material (OVL-008). */
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: var(--shadow-md);
+
+  /* Width is written by the controller from the ui-spec §4.4 table. It snaps:
+     the shell resizes the *window* to the same value in the same frame, and an
+     easing curve here would leave the pill lagging inside its own window for
+     the length of the transition. The 120 -> 200 jump at 30 s is abrupt in the
+     reference app too (parity risk 15). */
+
+  --tint: transparent;
+  --tint-alpha: 0;
+}
+
+/* Two full-bleed layers behind the content: the translucent material, then the
+   state tint over it. Separate pseudo-elements rather than one rgba() so the
+   opacities stay legible and no colour literal is needed. */
+.pill::before,
+.pill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.pill::before {
+  background: var(--bg-elevated);
+  opacity: 0.72;
+}
+
+.pill::after {
+  background: var(--tint);
+  opacity: var(--tint-alpha);
+}
+
+.pill > * {
+  position: relative;
+  z-index: 1;
+}
+
+.pill[data-state="hidden"] {
+  /* The shell orders the window out; blanking the content as well means a
+     stale frame can never flash on the next show (OVL-019). */
+  visibility: hidden;
+}
+
+/* -- Tints ---------------------------------------------------------------
+   The soft and final time warnings tint the pill without touching width,
+   strip, spinner or label (OVL-027/028). They are declared first so the states
+   that own a tint of their own override them on source order. */
+
+.pill[data-warning="1"] {
+  --tint: var(--warning);
+  --tint-alpha: 0.3;
+}
+
+.pill[data-warning="2"] {
+  --tint: var(--danger);
+  --tint-alpha: 0.3;
+}
+
+.pill[data-state="retrying"] {
+  --tint: var(--warning);
+  --tint-alpha: 0.2;
+}
+
+.pill[data-state="error"],
+.pill[data-state="recoverable"] {
+  --tint: var(--danger);
+  --tint-alpha: 0.3;
+}
+
+/* -- VU strip -------------------------------------------------------------
+   The recording visual, and in Recording and Locked the *only* one: no dot,
+   no pulse, no label (v2-ui-spec §1.4, §1.5). Eighteen 3px bars with 2px gaps
+   come to exactly 88px, inside a 22px container.
+
+   Heights are written by the controller in px, one style write per bar per
+   frame. They are not a CSS animation: the shape of the band is the audio,
+   and the only thing CSS contributes is the 60ms ease that stops a 25Hz feed
+   looking like a strobe. */
+
+.vu {
+  display: none;
+  flex: none;
+
+  /* 18 x 3px + 17 x 2px. */
+  width: 88px;
+  height: 22px;
+  gap: 2px;
+
+  /* Bars grow upward from a common baseline, which is what the reference
+     layers get from `anchorPoint = (0.5, 0)`. */
+  align-items: flex-end;
+}
+
+.pill[data-state="recording"] .vu,
+.pill[data-state="locked"] .vu {
+  display: flex;
+}
+
+.vu-bar {
+  width: 3px;
+
+  /* Silence. The controller overwrites this every frame while recording, and
+     restores it on every other state entry, but it is also the correct static
+     value for the first paint. */
+  height: 3px;
+
+  /* Half the bar width, so the caps are fully round at every height. */
+  border-radius: 1.5px;
+  background: var(--recording);
+
+  /* The reference wraps each layout pass in a 0.06s CATransaction. */
+  transition: height 60ms linear;
+}
+
+/* Hands-free recording turns the whole band green (OVL-021 in its new form).
+   Because the colour is a rule keyed on `data-state` rather than something the
+   controller writes, a locked session cannot leak green into the next one:
+   leaving the state is what restores red, with no reset step to forget. */
+.pill[data-state="locked"] .vu-bar {
+  background: var(--success);
+}
+
+/* -- Cancel ✕ -------------------------------------------------------------
+   Hover-revealed, recording states only (v2-ui-spec §1.7). Absolutely
+   positioned rather than placed in the flex flow so that revealing it moves
+   nothing; it overlaps the last bar or two of the band, exactly as the
+   reference button overlaps the strip it is layered above.
+
+   `.pill > *` gives every flow child `position: relative`, so this needs the
+   extra specificity of the child combinator to win. */
+
+.pill > .cancel {
+  position: absolute;
+
+  /* 20 x 20, 8 from the trailing edge, vertically centred in the 36px pill. */
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+
+  /* Hidden by opacity, never by `display`: the reveal is an animation, and an
+     element that does not exist cannot fade. `pointer-events` is what actually
+     makes it unclickable, so an invisible ✕ can never eat a click. */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms linear;
+}
+
+.pill > .cancel svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+}
+
+/* Gated on the state, not just on hover: after the microphone closes the ✕ has
+   nothing to cancel, and a pill that is still hoverable into a dead button is
+   worse than one that is inert. */
+.pill[data-state="recording"] > .cancel,
+.pill[data-state="locked"] > .cancel {
+  pointer-events: auto;
+}
+
+.pill[data-state="recording"]:hover > .cancel,
+.pill[data-state="locked"]:hover > .cancel,
+.pill[data-state="recording"] > .cancel:focus-visible,
+.pill[data-state="locked"] > .cancel:focus-visible {
+  opacity: 1;
+}
+
+.pill > .cancel:hover {
+  color: var(--text-primary);
+}
+
+/* -- Spinner --------------------------------------------------------------
+   Stands in for the small indeterminate NSProgressIndicator (OVL-011). */
+
+.spinner {
+  display: none;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+}
+
+.pill[data-state="processing"] .spinner,
+.pill[data-state="inserting"] .spinner,
+.pill[data-state="retrying"] .spinner {
+  display: block;
+}
+
+.spinner-track,
+.spinner-arc {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+}
+
+.spinner-track {
+  opacity: 0.25;
+}
+
+.spinner-arc {
+  /* r = 6.5 so the circumference is ~40.8; a quarter of it reads as an arc. */
+  stroke-dasharray: 10.2 30.6;
+  stroke-linecap: round;
+  transform-origin: 50% 50%;
+  animation: wl-spin 0.9s linear infinite;
+}
+
+@keyframes wl-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* -- Labels --------------------------------------------------------------- */
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--text-body);
+  color: var(--text-primary);
+
+  /* The panel width is fixed per state, so a long server error message
+     truncates exactly as the fixed-width NSTextField did. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Recording and Locked have no label at all. Left in the flow it would still
+   claim `flex: 1 1 auto` plus a gap, shoving the band off centre — the same
+   trick `.time:empty` already uses, and for the same reason. */
+.label:empty {
+  display: none;
+}
+
+.time {
+  flex: none;
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  /* Digits must not reflow the pill as the seconds tick over. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* The controller clears the text rather than toggling a class; below 30 s the
+   backend sends no label at all and the element is simply empty (OVL-032). */
+.time:empty {
+  display: none;
+}
+
+/* -- Buttons -------------------------------------------------------------- */
+
+.btn {
+  display: none;
+  flex: none;
+  height: 20px;
+  font-family: inherit;
+  font-size: var(--text-subheadline);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.pill[data-state="recoverable"] .btn {
+  display: inline-flex;
+  align-items: center;
+}
+
+.btn-bezel {
+  padding: 0 10px;
+  color: var(--text-primary);
+  background: var(--bg-control);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-bezel:hover:not(:disabled) {
+  background: var(--bg-control-hover);
+}
+
+.btn-bezel:active:not(:disabled) {
+  background: var(--bg-selected);
+}
+
+.btn-bezel:disabled {
+  opacity: 0.45;
+}
+
+.btn-inline {
+  padding: 0 2px;
+  font-size: var(--text-body);
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+}
+
+.btn-inline:hover {
+  color: var(--text-primary);
+}
+
+/* -- Reduced motion -------------------------------------------------------
+   app.css clamps every animation and transition to 0.01 ms, which is the
+   right answer for the VU bars and the ✕: the bars snap to each new height
+   instead of easing into it — still a live meter, just without the trailing
+   motion — and the ✕ appears rather than fades. Neither needs an override.
+
+   The spinner does. It is the only signal that a dictation is still being
+   processed, and a frozen spinner reads as a hang, so it is slowed rather
+   than stopped. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner-arc {
+    animation-name: wl-spin !important;
+    animation-duration: 2s !important;
+    animation-iteration-count: infinite !important;
+  }
+}

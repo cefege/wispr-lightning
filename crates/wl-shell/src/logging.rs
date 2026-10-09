@@ -6,6 +6,8 @@
 
 use std::sync::OnceLock;
 
+use parking_lot::Mutex;
+
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::reload;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -14,7 +16,9 @@ use tracing_subscriber::EnvFilter;
 type ReloadHandle = reload::Handle<EnvFilter, tracing_subscriber::Registry>;
 
 static RELOAD: OnceLock<ReloadHandle> = OnceLock::new();
-static GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
+/// Taken and dropped by [`flush`]: the non-blocking writer only drains its
+/// queue when the guard drops, and a static is never dropped.
+static GUARD: Mutex<Option<tracing_appender::non_blocking::WorkerGuard>> = Mutex::new(None);
 
 /// Install the global subscriber. Safe to call more than once; later calls are
 /// no-ops.
@@ -32,7 +36,7 @@ pub fn init() {
 
     let file_appender = tracing_appender::rolling::daily(&dir, "WisprLightning.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
-    let _ = GUARD.set(guard);
+    *GUARD.lock() = Some(guard);
 
     // RUST_LOG wins when set, so a developer can override without touching
     // the app's own setting.
@@ -50,6 +54,13 @@ pub fn init() {
         )
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .try_init();
+}
+
+/// Write out every queued log line. Call immediately before the process ends
+/// (`std::process::exit` or returning from `main`); lines logged afterwards go
+/// to stderr only.
+pub fn flush() {
+    drop(GUARD.lock().take());
 }
 
 /// Switch between normal and verbose logging without restarting.

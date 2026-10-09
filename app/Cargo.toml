@@ -1,0 +1,59 @@
+[package]
+name = "wl-app"
+version = "2.0.0"
+edition = "2021"
+rust-version = "1.82"
+license = "LicenseRef-SourceAvailable"
+repository = "https://github.com/cefege/wispr-lightning"
+publish = false
+
+# Its own workspace until the cutover: dioxus-desktop 0.7 pins wry 0.53 and the
+# Tauri shell in the root workspace needs wry 0.55; the two cannot share a
+# lockfile. Step 6 deletes src-tauri and folds this crate back into the root.
+[workspace]
+
+[[bin]]
+name = "wispr-lightning-dx"
+path = "src/main.rs"
+
+[features]
+default = []
+settings = []
+history = []
+dictionary = []
+notes = []
+
+[dependencies]
+dioxus = { version = "0.7", features = ["desktop"] }
+wl-core = { path = "../crates/wl-core" }
+wl-platform = { path = "../crates/wl-platform" }
+wl-providers = { path = "../crates/wl-providers" }
+wl-shell = { path = "../crates/wl-shell" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+parking_lot = "0.12"
+tracing = "0.1"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+arboard = "3"
+single-instance = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+dirs = "6"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["crates/wl-core", "crates/wl-providers", "crates/wl-platform", "crates/wl-shell", "src-tauri"]
+# The Dioxus shell is its own workspace until the cutover: dioxus-desktop 0.7
+# pins wry 0.53 and Tauri 2.11 needs wry 0.55, whose `links`-unique system
+# crates cannot share one lockfile.
+exclude = ["app"]
 
 [workspace.package]
 version = "2.0.0"

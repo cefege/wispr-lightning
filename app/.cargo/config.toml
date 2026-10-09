@@ -1,0 +1,4 @@
+# Share the root workspace's build directory while this crate is a separate
+# workspace (until the cutover), so common dependencies compile once.
+[build]
+target-dir = "../target"

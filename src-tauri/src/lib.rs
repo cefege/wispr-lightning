@@ -128,6 +128,7 @@ pub fn run() {
             // the database handle; the log line is what makes a clean shutdown
             tauri::RunEvent::Exit => {
                 tracing::info!("Wispr Lightning: shutting down");
+                wl_shell::logging::flush();
             }
             _ => {}
         });
