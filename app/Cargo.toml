@@ -16,12 +16,7 @@ publish = false
 name = "wispr-lightning-dx"
 path = "src/main.rs"
 
-[features]
-default = []
-settings = []
-history = []
-dictionary = []
-notes = []
+
 
 [dependencies]
 dioxus = { version = "0.7", features = ["desktop"] }
@@ -39,6 +34,10 @@ arboard = "3"
 single-instance = "0.3"
 image = { version = "0.25", default-features = false, features = ["png"] }
 dirs = "6"
+dioxus-primitives = { git = "https://github.com/DioxusLabs/components", rev = "9a758255ea26e2b20c8cecf4c1c946feb9e71da7" }
+dioxus-icons = { version = "0.1.0", default-features = false }
+rfd = "0.17"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }

@@ -17,7 +17,7 @@ use wl_platform::audio::InputDevice;
 use wl_shell::ops::AccentColor;
 use wl_shell::ui::{Elapsed, OverlayState};
 
-use crate::windows::WindowName;
+use crate::windows::Section;
 
 /// The change topics `ops` and the pipeline publish. Unknown topics are
 /// logged and dropped by [`crate::host::DioxusHost`].
@@ -49,7 +49,8 @@ pub struct Bus {
     pub show_in_dock: watch::Sender<bool>,
     pub level: watch::Sender<f32>,
     pub tray: mpsc::UnboundedSender<TrayCommand>,
-    pub open_window: mpsc::UnboundedSender<WindowName>,
+    pub open_main: mpsc::UnboundedSender<Option<Section>>,
+    pub navigate: broadcast::Sender<Section>,
     receivers: Mutex<Option<MainThreadReceivers>>,
 }
 
@@ -57,13 +58,13 @@ pub struct Bus {
 /// component.
 pub struct MainThreadReceivers {
     pub tray: mpsc::UnboundedReceiver<TrayCommand>,
-    pub open_window: mpsc::UnboundedReceiver<WindowName>,
+    pub open_main: mpsc::UnboundedReceiver<Option<Section>>,
 }
 
 impl Bus {
     pub fn new(settings: Settings, accent: Option<AccentColor>) -> Self {
         let (tray, tray_rx) = mpsc::unbounded_channel();
-        let (open_window, open_window_rx) = mpsc::unbounded_channel();
+        let (open_main, open_main_rx) = mpsc::unbounded_channel();
         Self {
             settings: watch::Sender::new(settings),
             settings_error: broadcast::Sender::new(16),
@@ -74,10 +75,11 @@ impl Bus {
             level: watch::Sender::new(0.0),
             show_in_dock: watch::Sender::new(false),
             tray,
-            open_window,
+            open_main,
+            navigate: broadcast::Sender::new(4),
             receivers: Mutex::new(Some(MainThreadReceivers {
                 tray: tray_rx,
-                open_window: open_window_rx,
+                open_main: open_main_rx,
             })),
         }
     }
@@ -94,8 +96,8 @@ impl Bus {
         let _ = self.tray.send(command);
     }
 
-    pub fn open_window(&self, name: WindowName) {
-        let _ = self.open_window.send(name);
+    pub fn open_main(&self, section: Option<Section>) {
+        let _ = self.open_main.send(section);
     }
 
     /// Map a topic string onto its static, or `None` for an unknown topic.

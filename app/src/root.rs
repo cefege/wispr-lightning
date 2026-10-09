@@ -67,8 +67,8 @@ pub fn Root() -> Element {
                             tray.borrow_mut().apply(command);
                         }
                     }
-                    Some(name) = receivers.open_window.recv() => {
-                        crate::windows::open(name, Arc::clone(&state), Arc::clone(&bus)).await;
+                    Some(section) = receivers.open_main.recv() => {
+                        crate::windows::open(section, Arc::clone(&state), Arc::clone(&bus)).await;
                     }
                     Ok(()) = show_in_dock.changed() => {
                         crate::windows::apply_show_in_dock(*show_in_dock.borrow_and_update());

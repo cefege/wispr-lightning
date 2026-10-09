@@ -29,6 +29,9 @@ use wl_shell::ui::OverlayState;
 use crate::bus::Bus;
 use vu::{LevelMeter, BAR_COUNT};
 
+static TAILWIND: Asset = asset!("/assets/tailwind.css");
+static DX_THEME: Asset = asset!("/assets/dx-components-theme.css");
+
 /// Window configuration for the root (overlay) window.
 pub fn window_config() -> Config {
     let builder = WindowBuilder::new()
@@ -75,14 +78,9 @@ pub fn window_config() -> Config {
         // The default left-click handler would show this window.
         .with_tray_icon_show_window_on_click(false)
         .with_data_directory(wl_core::paths::app_support_dir().join("webview"))
-        .with_custom_head(format!(
-            "<style>{}</style><style>{}</style><style>{}</style>",
-            include_str!("../../assets/app.css"),
-            include_str!("../../assets/overlay.css"),
-            // Dioxus mounts into `#main`; let the pill be laid out as if it
-            // were the body's direct child, as overlay.css expects.
-            "html, body { margin: 0; height: 100%; } #main { display: contents; }",
-        ))
+        .with_custom_head(
+            "<style>html, body { margin: 0; height: 100%; background: transparent !important; overflow: hidden !important; } body { display: flex; align-items: center; justify-content: center; -webkit-app-region: no-drag; app-region: no-drag; } #main { display: contents; }</style>".to_string(),
+        )
         .with_on_window(|window, _dom| {
             crate::platform::harden_overlay(&window);
             // Passive states are click-through, and the overlay starts passive.
@@ -222,6 +220,14 @@ pub fn Overlay() -> Element {
     let recording = view::is_recording(&current);
     let elapsed = elapsed_label().filter(|_| recording);
     let pill_width = width_for(&current, elapsed.is_some()).unwrap_or(INITIAL_WIDTH);
+    let current_warning = *warning.read();
+    let (tint, tint_alpha) = match &current {
+        OverlayState::Error { .. } | OverlayState::Recoverable { .. } => ("var(--danger)", 0.3),
+        OverlayState::Retrying { .. } => ("var(--warning)", 0.2),
+        _ if current_warning == 1 => ("var(--warning)", 0.3),
+        _ if current_warning == 2 => ("var(--danger)", 0.3),
+        _ => ("transparent", 0.0),
+    };
     let action = move |name: &'static str| {
         let state = Arc::clone(&state);
         move |_| {
@@ -240,54 +246,54 @@ pub fn Overlay() -> Element {
     };
 
     rsx! {
+        document::Stylesheet { href: TAILWIND }
+        document::Stylesheet { href: DX_THEME }
         div {
             id: "pill",
-            class: "pill",
+            class: "group relative flex h-9 items-center justify-center gap-2 overflow-hidden rounded-pill px-4 shadow-pop backdrop-blur-[30px] [backdrop-filter:saturate(180%)] before:absolute before:inset-0 before:z-0 before:pointer-events-none before:bg-elevated before:opacity-[0.72] before:content-[''] after:absolute after:inset-0 after:z-0 after:pointer-events-none after:bg-[var(--tint)] after:opacity-[var(--tint-alpha)] after:content-[''] [&>*]:relative [&>*]:z-10 data-[state=hidden]:invisible",
             "data-state": view::key(&current),
-            "data-warning": "{warning}",
-            style: "width: {pill_width}px",
-            span { id: "vu", class: "vu", "aria-hidden": "true",
+            "data-warning": "{current_warning}",
+            style: format!(
+                "width: {}px; --tint: {}; --tint-alpha: {}",
+                pill_width, tint, tint_alpha
+            ),
+            span { id: "vu", class: "hidden h-[22px] w-[88px] flex-none items-end gap-[2px] group-data-[state=recording]:flex group-data-[state=locked]:flex", "aria-hidden": "true",
                 for height in bars() {
-                    i { class: "vu-bar", style: "height: {height}px" }
+                    i { class: "w-[3px] rounded-[1.5px] bg-recording transition-[height] duration-[60ms] ease-linear group-data-[state=locked]:bg-success", style: "height: {height}px" }
                 }
             }
-            svg { id: "spinner", class: "spinner", view_box: "0 0 16 16", "aria-hidden": "true",
-                circle { class: "spinner-track", cx: "8", cy: "8", r: "6.5" }
-                circle { class: "spinner-arc", cx: "8", cy: "8", r: "6.5" }
+            svg { id: "spinner", class: "hidden size-4 flex-none text-fg-muted group-data-[state=processing]:block group-data-[state=inserting]:block group-data-[state=retrying]:block", view_box: "0 0 16 16", fill: "none", stroke: "currentColor", stroke_width: "2", "aria-hidden": "true",
+                circle { class: "opacity-25", cx: "8", cy: "8", r: "6.5" }
+                circle { class: "origin-center animate-wl-spin", cx: "8", cy: "8", r: "6.5", stroke_dasharray: "10.2 30.6", stroke_linecap: "round" }
             }
-            span { id: "label", class: "label", {view::label(&current)} }
-            span { id: "time", class: "time", {elapsed.unwrap_or_default()} }
-            button { id: "retry", class: "btn btn-bezel", r#type: "button",
+            span { id: "label", class: "min-w-0 flex-1 truncate whitespace-nowrap text-[13px] text-fg empty:hidden", {view::label(&current)} }
+            span { id: "time", class: "flex-none whitespace-nowrap text-[13px] tabular-nums text-fg-muted empty:hidden", {elapsed.unwrap_or_default()} }
+            button { id: "retry", class: "hidden h-5 flex-none items-center rounded-sm border border-line bg-control px-2.5 text-[11px] text-fg shadow-sm hover:bg-control-hover active:bg-selected group-data-[state=recoverable]:inline-flex", r#type: "button",
                 onmousedown: |e| e.prevent_default(),
                 onclick: action("retry"),
                 "Retry"
             }
-            button { id: "save", class: "btn btn-bezel", r#type: "button",
+            button { id: "save", class: "hidden h-5 flex-none items-center rounded-sm border border-line bg-control px-2.5 text-[11px] text-fg shadow-sm hover:bg-control-hover active:bg-selected group-data-[state=recoverable]:inline-flex", r#type: "button",
                 disabled: saved(),
                 onmousedown: |e| e.prevent_default(),
                 onclick: on_save,
                 if saved() { "Saved" } else { "Save" }
             }
-            button { id: "dismiss", class: "btn btn-inline", r#type: "button",
+            button { id: "dismiss", class: "hidden flex-none border-0 bg-transparent px-0.5 text-[13px] text-fg-muted hover:text-fg group-data-[state=recoverable]:inline-flex", r#type: "button",
                 "aria-label": "Dismiss",
                 onmousedown: |e| e.prevent_default(),
                 onclick: action("dismiss"),
                 "\u{2715}"
             }
-            button { id: "cancel", class: "cancel", r#type: "button",
+            button { id: "cancel", class: "pointer-events-none absolute right-2 top-2 z-20 size-5 cursor-pointer border-0 bg-transparent p-0 text-fg-muted opacity-0 transition-opacity duration-100 group-data-[state=recording]:pointer-events-auto group-data-[state=locked]:pointer-events-auto group-hover:group-data-[state=recording]:opacity-100 group-hover:group-data-[state=locked]:opacity-100 group-focus-within:opacity-100", r#type: "button",
                 title: "Cancel recording",
                 "aria-label": "Cancel recording",
                 onmousedown: |e| e.prevent_default(),
                 onclick: action("cancel"),
-                svg { view_box: "0 0 20 20", "aria-hidden": "true",
+                svg { class: "block size-5", view_box: "0 0 20 20", "aria-hidden": "true",
                     mask { id: "cancel-xmark",
                         circle { cx: "10", cy: "10", r: "9", fill: "#fff" }
-                        path {
-                            d: "M6.6 6.6 13.4 13.4M13.4 6.6 6.6 13.4",
-                            stroke: "#000",
-                            stroke_width: "1.8",
-                            stroke_linecap: "round",
-                        }
+                        path { d: "M6.6 6.6 13.4 13.4M13.4 6.6 6.6 13.4", stroke: "#000", stroke_width: "1.8", stroke_linecap: "round" }
                     }
                     circle { cx: "10", cy: "10", r: "9", fill: "currentColor", mask: "url(#cancel-xmark)" }
                 }

@@ -1,0 +1,129 @@
+@import "tailwindcss";
+@source "./src/**/*.{rs,html,css}";
+@custom-variant dark (@media (prefers-color-scheme: dark));
+
+:root {
+  color-scheme: light dark;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-overlay: 18px;
+  --radius-pill: var(--radius-overlay);
+  --color-brand: #7c5cff;
+  --color-brand-ink: #221a30;
+  --accent: #7c5cff;
+  --accent-text: #fff;
+  --accent-darker: #6344db;
+  --accent-lighter: #a28cff;
+
+  --window: #f6f5f8;
+  --sidebar: #efedf3;
+  --surface: #fff;
+  --elevated: #fff;
+  --control: rgba(29, 24, 38, .05);
+  --control-hover: rgba(29, 24, 38, .09);
+  --selected: rgba(124, 92, 255, .12);
+  --fg: #1d1826;
+  --fg-muted: #6b6478;
+  --fg-subtle: #9a94a6;
+  --line: rgba(29, 24, 38, .09);
+  --line-strong: rgba(29, 24, 38, .16);
+  --danger: #e5484d;
+  --success: #30a46c;
+  --warning: #f5a524;
+  --recording: #e5484d;
+  --card-shadow: 0 1px 2px rgba(20, 16, 28, .06);
+  --pop-shadow: 0 4px 16px rgba(20, 16, 28, .10);
+  --modal-shadow: 0 12px 40px rgba(20, 16, 28, .18);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --window: #141118;
+    --sidebar: #1a1620;
+    --surface: #1f1a26;
+    --elevated: #262030;
+    --control: rgba(255, 255, 255, .06);
+    --control-hover: rgba(255, 255, 255, .10);
+    --selected: rgba(124, 92, 255, .22);
+    --fg: #f1eef6;
+    --fg-muted: #a39cb0;
+    --fg-subtle: #6f6879;
+    --line: rgba(255, 255, 255, .08);
+    --line-strong: rgba(255, 255, 255, .14);
+    --recording: #ff6369;
+    --card-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+    --pop-shadow: 0 4px 16px rgba(0, 0, 0, .20);
+    --modal-shadow: 0 12px 40px rgba(0, 0, 0, .36);
+  }
+}
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  --color-window: var(--window);
+  --color-sidebar: var(--sidebar);
+  --color-surface: var(--surface);
+  --color-elevated: var(--elevated);
+  --color-control: var(--control);
+  --color-control-hover: var(--control-hover);
+  --color-selected: var(--selected);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-recording: var(--recording);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-text);
+  --color-brand: #7c5cff;
+  --color-brand-ink: #221a30;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-pill: var(--radius-overlay);
+  --shadow-card: var(--card-shadow);
+  --shadow-pop: var(--pop-shadow);
+  --shadow-modal: var(--modal-shadow);
+}
+
+@utility bg-brand-gradient {
+  background-image: linear-gradient(135deg, #7c5cff 0%, #b65cff 100%);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--window); color: var(--fg); font: 13px var(--font-sans); }
+
+@theme {
+  --animate-wl-spin: wl-spin .9s linear infinite;
+}
+
+@keyframes wl-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-wl-spin {
+    animation-duration: 2s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+input, textarea { color: inherit; font: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+  }
+}

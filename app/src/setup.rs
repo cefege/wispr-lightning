@@ -17,7 +17,6 @@ use wl_shell::{logging, pipeline, spool};
 use crate::bus::Bus;
 use crate::host::DioxusHost;
 use crate::ui_impl::DioxusUi;
-use crate::windows::WindowName;
 
 pub struct App {
     pub state: Arc<AppState>,
@@ -149,7 +148,7 @@ pub fn build() -> anyhow::Result<App> {
     }
     if !current.did_complete_onboarding {
         // Consumed by the root component once the event loop runs.
-        bus.open_window(WindowName::Settings);
+        bus.open_main(None);
     }
 
     // LIF-013: a recording that was never transcribed is offered back.

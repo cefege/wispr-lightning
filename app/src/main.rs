@@ -15,6 +15,8 @@ mod root;
 mod setup;
 mod tray;
 mod ui_impl;
+mod components;
+mod ui;
 mod window_state;
 mod windows;
 

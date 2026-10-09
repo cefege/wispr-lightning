@@ -21,11 +21,11 @@ use wl_platform::audio::InputDevice;
 use wl_shell::state::AppState;
 use wl_shell::tray_model::{
     menu_model, MenuInput, MenuNode, ID_DEVICE_PREFIX, ID_LAST_TRANSCRIPTION, ID_NATURAL_MODE,
-    ID_PAUSE, ID_QUIT, ID_SETTINGS, TRAY_ID,
+    ID_OPEN, ID_PAUSE, ID_QUIT, ID_SETTINGS, TRAY_ID,
 };
 
 use crate::bus::{Bus, TrayCommand};
-use crate::windows::WindowName;
+use crate::windows::Section;
 
 /// Deliberately not a template image (TRY-008): the two-colour mark is what
 /// distinguishes idle from recording at a glance.
@@ -183,7 +183,7 @@ impl Tray {
             ..
         } = event
         {
-            bus.open_window(WindowName::Settings);
+            bus.open_main(Some(Section::Home));
         }
     }
 
@@ -196,8 +196,13 @@ impl Tray {
             std::process::exit(0);
         }
 
+        if id == ID_OPEN {
+            bus.open_main(Some(Section::Home));
+            return;
+        }
+
         if id == ID_SETTINGS {
-            bus.open_window(WindowName::Settings);
+            bus.open_main(Some(Section::General));
             return;
         }
 
