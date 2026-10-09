@@ -69,6 +69,30 @@ fn permission_state(statuses: &BTreeMap<String, &'static str>, key: &str) -> Opt
     statuses.get(key).copied()
 }
 
+fn pending(status: Option<&str>) -> bool {
+    status.is_some_and(|s| s != "granted" && s != "not_applicable")
+}
+
+/// The row whose button is shown: the active row while it is still pending,
+/// otherwise the first required row that is not granted, whatever its state.
+/// macOS reports Accessibility and Input Monitoring as `denied` until approved,
+/// so advancing only to `not_determined` rows leaves them without a button.
+fn next_active(
+    required: &[(&'static str, &'static str, &'static str)],
+    statuses: &BTreeMap<String, &'static str>,
+    active: Option<&str>,
+) -> Option<&'static str> {
+    if let Some((key, _, _)) = active.and_then(|a| required.iter().find(|(k, _, _)| *k == a)) {
+        if pending(permission_state(statuses, key)) {
+            return Some(key);
+        }
+    }
+    required
+        .iter()
+        .map(|(key, _, _)| *key)
+        .find(|key| pending(permission_state(statuses, key)))
+}
+
 #[component]
 pub fn OnboardingFlow() -> Element {
     let state = use_context::<Arc<AppState>>();
@@ -163,32 +187,26 @@ pub fn OnboardingFlow() -> Element {
 
                     let statuses = permissions.read().clone();
                     if permission_error.read().is_none() && !ready_for(&required, &statuses) {
+                        // Owned copy: a read guard in the `if let` scrutinee
+                        // would live through the body and collide with `set`.
                         let active = active_permission.read().clone();
-                        let active_still_pending = active.as_ref().is_some_and(|key| {
-                            statuses
-                                .get(key)
-                                .is_some_and(|status| *status == "not_determined")
-                        });
-                        if !active_still_pending {
-                            if let Some((key, _, _)) = required.iter().find(|(key, _, _)| {
-                                statuses
-                                    .get(*key)
-                                    .is_some_and(|status| *status == "not_determined")
-                            }) {
-                                if !requested.read().contains(&key.to_string()) {
-                                    active_permission.set(Some(key.to_string()));
-                                    requested.write().push(key.to_string());
-                                    let state_for_request = Arc::clone(&state);
-                                    let key = key.to_string();
-                                    let result = tokio::task::spawn_blocking(move || {
-                                        ops::permissions_request(&state_for_request, &key)
-                                    })
-                                    .await
-                                    .map_err(|error| error.to_string())
-                                    .and_then(|result| result);
-                                    if let Err(error) = result {
-                                        permission_error.set(Some(error));
-                                    }
+                        if let Some(key) = next_active(&required, &statuses, active.as_deref()) {
+                            if active.as_deref() != Some(key) {
+                                active_permission.set(Some(key.to_string()));
+                            }
+                            // Only this loop starts automatic requests, once per
+                            // row, so at most one native prompt is in flight.
+                            if !requested.read().iter().any(|k| k == key) {
+                                requested.write().push(key.to_string());
+                                let state_for_request = Arc::clone(&state);
+                                let result = tokio::task::spawn_blocking(move || {
+                                    ops::permissions_request(&state_for_request, key)
+                                })
+                                .await
+                                .map_err(|error| error.to_string())
+                                .and_then(|result| result);
+                                if let Err(error) = result {
+                                    permission_error.set(Some(error));
                                 }
                             }
                         }
@@ -754,4 +772,55 @@ fn DeepgramStep(props: DeepgramStepProps) -> Element {
 
 pub fn view() -> Element {
     rsx! { OnboardingFlow {} }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn statuses(pairs: &[(&str, &'static str)]) -> BTreeMap<String, &'static str> {
+        pairs.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    #[test]
+    fn a_denied_row_after_a_grant_becomes_active() {
+        let s = statuses(&[
+            ("microphone", "granted"),
+            ("input_monitoring", "denied"),
+            ("accessibility", "denied"),
+            ("screen_recording", "granted"),
+        ]);
+        assert_eq!(
+            next_active(&MACOS_PERMISSIONS, &s, Some("microphone")),
+            Some("input_monitoring")
+        );
+    }
+
+    #[test]
+    fn the_active_row_keeps_its_button_while_it_is_pending() {
+        let s = statuses(&[
+            ("microphone", "not_determined"),
+            ("input_monitoring", "granted"),
+            ("accessibility", "denied"),
+            ("screen_recording", "granted"),
+        ]);
+        assert_eq!(
+            next_active(&MACOS_PERMISSIONS, &s, Some("accessibility")),
+            Some("accessibility")
+        );
+    }
+
+    #[test]
+    fn nothing_is_active_once_every_row_is_granted_or_not_applicable() {
+        let s = statuses(&[
+            ("microphone", "granted"),
+            ("input_monitoring", "granted"),
+            ("accessibility", "granted"),
+            ("screen_recording", "not_applicable"),
+        ]);
+        assert_eq!(
+            next_active(&MACOS_PERMISSIONS, &s, Some("accessibility")),
+            None
+        );
+    }
 }
