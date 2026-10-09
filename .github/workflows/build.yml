@@ -33,7 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # dx strips the release binary with rust-objcopy from llvm-tools.
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools
 
       - uses: Swatinem/rust-cache@v2
 
@@ -48,9 +51,17 @@ jobs:
       - name: Bundle
         run: dx bundle --platform desktop --release --package wispr-lightning
 
-      - name: List bundle output
+      - name: Check bundled sounds
         shell: bash
-        run: find target/dx/wispr-lightning -path '*/bundle/*' -maxdepth 6 | sort
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            dir=target/dx/wispr-lightning/bundle/macos/macos/WisprLightning.app/Contents/Resources/assets/sounds
+          else
+            dir=target/dx/wispr-lightning/bundle/windows/nsis/_staging/assets/sounds
+          fi
+          count=$(find "$dir" -type f -name '*.wav' | wc -l | tr -d ' ')
+          echo "$dir: $count WAV files"
+          test "$count" = 21
 
       - uses: actions/upload-artifact@v4
         with:

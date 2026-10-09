@@ -39,7 +39,11 @@ Setup requires a Deepgram API key. The key is saved locally and write-only in th
 
 ## Install
 
-Download the latest release: `.dmg` for macOS 13+, `.msi` or `.exe` for Windows 10/11. The Windows NSIS installer is per-user — it installs to `%LOCALAPPDATA%\Wispr Lightning` and needs no administrator rights.
+Download the latest [release](https://github.com/cefege/wispr-lightning/releases): `.dmg` for macOS 13+ on Apple Silicon, `-setup.exe` for Windows 10/11. The Windows NSIS installer is per-user — it installs to `%LOCALAPPDATA%\Wispr Lightning` and needs no administrator rights.
+
+Release builds are not code-signed. On macOS, open the app once with right-click → **Open** (or run `xattr -dr com.apple.quarantine "/Applications/WisprLightning.app"`). On Windows, SmartScreen shows "Windows protected your PC": choose **More info → Run anyway**.
+
+Releases are built by GitHub Actions (`.github/workflows/build.yml`): every push to `main` and every pull request builds both platforms as workflow artifacts, and pushing a `v*` tag publishes them to a GitHub Release.
 
 ### First-launch permissions
 

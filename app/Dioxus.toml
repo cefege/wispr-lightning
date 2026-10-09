@@ -16,54 +16,10 @@ entitlements = "entitlements.plist"
 info_plist_path = "Info.plist"
 hardened_runtime = true
 
-[bundle.macos.files]
-"Resources/resources/sounds/default/dictation-start.wav" = "resources/sounds/default/dictation-start.wav"
-"Resources/resources/sounds/default/dictation-stop.wav" = "resources/sounds/default/dictation-stop.wav"
-"Resources/resources/sounds/default/paste.wav" = "resources/sounds/default/paste.wav"
-"Resources/resources/sounds/v1/Notification.wav" = "resources/sounds/v1/Notification.wav"
-"Resources/resources/sounds/v1/achievement.wav" = "resources/sounds/v1/achievement.wav"
-"Resources/resources/sounds/v1/dictation-start.wav" = "resources/sounds/v1/dictation-start.wav"
-"Resources/resources/sounds/v1/dictation-stop.wav" = "resources/sounds/v1/dictation-stop.wav"
-"Resources/resources/sounds/v1/paste.wav" = "resources/sounds/v1/paste.wav"
-"Resources/resources/sounds/v1/popo-lock.wav" = "resources/sounds/v1/popo-lock.wav"
-"Resources/resources/sounds/v2/Notification.wav" = "resources/sounds/v2/Notification.wav"
-"Resources/resources/sounds/v2/achievement.wav" = "resources/sounds/v2/achievement.wav"
-"Resources/resources/sounds/v2/dictation-start.wav" = "resources/sounds/v2/dictation-start.wav"
-"Resources/resources/sounds/v2/dictation-stop.wav" = "resources/sounds/v2/dictation-stop.wav"
-"Resources/resources/sounds/v2/paste.wav" = "resources/sounds/v2/paste.wav"
-"Resources/resources/sounds/v2/popo-lock.wav" = "resources/sounds/v2/popo-lock.wav"
-"Resources/resources/sounds/v3/Notification.wav" = "resources/sounds/v3/Notification.wav"
-"Resources/resources/sounds/v3/achievement.wav" = "resources/sounds/v3/achievement.wav"
-"Resources/resources/sounds/v3/dictation-start.wav" = "resources/sounds/v3/dictation-start.wav"
-"Resources/resources/sounds/v3/dictation-stop.wav" = "resources/sounds/v3/dictation-stop.wav"
-"Resources/resources/sounds/v3/paste.wav" = "resources/sounds/v3/paste.wav"
-"Resources/resources/sounds/v3/popo-lock.wav" = "resources/sounds/v3/popo-lock.wav"
+# Sounds ship as a dx folder asset (see `app/src/paths.rs`), not through
+# `resources`: dx copies config resources by bare file name, and the packs
+# share file names.
 
-[windows]
-resources = [
-    "resources/sounds/default/dictation-start.wav",
-    "resources/sounds/default/dictation-stop.wav",
-    "resources/sounds/default/paste.wav",
-    "resources/sounds/v1/Notification.wav",
-    "resources/sounds/v1/achievement.wav",
-    "resources/sounds/v1/dictation-start.wav",
-    "resources/sounds/v1/dictation-stop.wav",
-    "resources/sounds/v1/paste.wav",
-    "resources/sounds/v1/popo-lock.wav",
-    "resources/sounds/v2/Notification.wav",
-    "resources/sounds/v2/achievement.wav",
-    "resources/sounds/v2/dictation-start.wav",
-    "resources/sounds/v2/dictation-stop.wav",
-    "resources/sounds/v2/paste.wav",
-    "resources/sounds/v2/popo-lock.wav",
-    "resources/sounds/v3/Notification.wav",
-    "resources/sounds/v3/achievement.wav",
-    "resources/sounds/v3/dictation-start.wav",
-    "resources/sounds/v3/dictation-stop.wav",
-    "resources/sounds/v3/paste.wav",
-    "resources/sounds/v3/popo-lock.wav",
-]
-
-
-[windows.nsis]
+# dx's bundler reads `bundle.windows`; a top-level `[windows]` table is ignored.
+[bundle.windows.nsis]
 install_mode = "CurrentUser"

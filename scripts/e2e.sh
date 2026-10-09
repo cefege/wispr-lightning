@@ -393,8 +393,8 @@ row_LIF_018() {
     fail LIF-018 "running from / broke resource resolution"
     return
   fi
-  packs="$(find "$BUNDLE_APP/Contents/Resources/resources/sounds" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
-  wav_files="$(find "$BUNDLE_APP/Contents/Resources/resources/sounds" -type f -name '*.wav' | wc -l | tr -d ' ')"
+  packs="$(find "$BUNDLE_APP/Contents/Resources/assets/sounds" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')"
+  wav_files="$(find "$BUNDLE_APP/Contents/Resources/assets/sounds" -type f -name '*.wav' | wc -l | tr -d ' ')"
   stop_app "$pid"
   if [ "$packs" != "4" ] || [ "$wav_files" != "21" ]; then
     fail LIF-018 "bundle contains $packs sound packs and $wav_files WAV files; expected 4 packs and all 21 sound assets"
