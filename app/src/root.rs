@@ -30,8 +30,9 @@ pub fn Root() -> Element {
 
     // Tray menu clicks arrive as muda events, not tray-menu events: muda keeps
     // one global handler and the first installer wins, and dioxus-desktop
-    // installs its muda forwarder before its tray-menu one. The app has no
-    // menu bar (`with_menu(None)`), so every muda event is a tray item.
+    // installs its muda forwarder before its tray-menu one. The macOS Edit
+    // menu uses predefined items, which emit no events, so every muda event
+    // here is a tray item.
     {
         let tray = tray.clone();
         let bus = Arc::clone(&bus);

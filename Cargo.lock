@@ -7247,7 +7247,7 @@ dependencies = [
 
 [[package]]
 name = "wispr-lightning"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "anyhow",
  "arboard",
@@ -7283,7 +7283,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wl-core"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "anyhow",
  "parking_lot",
@@ -7298,7 +7298,7 @@ dependencies = [
 
 [[package]]
 name = "wl-platform"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "anyhow",
  "block2",
@@ -7333,7 +7333,7 @@ dependencies = [
 
 [[package]]
 name = "wl-providers"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "async-trait",
  "form_urlencoded",
@@ -7353,7 +7353,7 @@ dependencies = [
 
 [[package]]
 name = "wl-shell"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "anyhow",
  "async-trait",

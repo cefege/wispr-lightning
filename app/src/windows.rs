@@ -118,10 +118,42 @@ fn config(show_in_dock: bool) -> Config {
 
     Config::new()
         .with_window(builder)
-        .with_menu(None)
+        .with_menu(edit_menu())
         .with_close_behaviour(WindowCloseBehaviour::WindowHides)
         .with_disable_context_menu(true)
         .with_data_directory(wl_core::paths::app_support_dir().join("webview"))
+}
+
+/// macOS routes ⌘X/⌘C/⌘V/⌘A/⌘Z through the app's Edit menu; without one,
+/// text fields cannot paste (an API key, for one). The predefined items map to
+/// the native selectors and emit no menu events, so the tray handler never
+/// sees them. Other platforms handle these keys in the webview and would draw
+/// a menu bar inside the window, so they get none.
+#[cfg(target_os = "macos")]
+fn edit_menu() -> Option<dioxus::desktop::muda::Menu> {
+    use dioxus::desktop::muda::{Menu, PredefinedMenuItem, Submenu};
+
+    let app = Submenu::with_items("Wispr Lightning", true, &[]).ok()?;
+    let edit = Submenu::with_items(
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(None),
+            &PredefinedMenuItem::redo(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::cut(None),
+            &PredefinedMenuItem::copy(None),
+            &PredefinedMenuItem::paste(None),
+            &PredefinedMenuItem::select_all(None),
+        ],
+    )
+    .ok()?;
+    Menu::with_items(&[&app, &edit]).ok()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn edit_menu() -> Option<dioxus::desktop::muda::Menu> {
+    None
 }
 
 /// Apply "Show in Dock" to the live main window (Windows: taskbar entry).
