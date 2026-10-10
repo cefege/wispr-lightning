@@ -284,7 +284,7 @@ pub fn view() -> Element {
                         button {
                             class: "rounded-md border border-line px-3 py-2 text-xs font-medium hover:bg-control-hover",
                             r#type: "button",
-                            onclick: move |_| setup_bus.open_main(Some(Section::Transcription)),
+                            onclick: move |_| { let _ = setup_bus.navigate.send(Section::Transcription); },
                             "Set up"
                         }
                     }
@@ -317,7 +317,7 @@ pub fn view() -> Element {
                     button {
                         class: "text-sm font-medium text-accent hover:underline",
                         r#type: "button",
-                        onclick: move |_| history_bus.open_main(Some(Section::History)),
+                        onclick: move |_| { let _ = history_bus.navigate.send(Section::History); },
                         "View all"
                     }
                 }

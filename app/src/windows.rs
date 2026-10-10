@@ -58,10 +58,19 @@ impl Section {
 thread_local! {
     /// The one live managed window. Desktop contexts are main-thread only.
     static WINDOW: RefCell<Option<WeakDesktopContext>> = const { RefCell::new(None) };
+    /// A window has been requested but has not registered itself yet.
+    static PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// Show the main window, creating it on first use and navigating when reused.
-pub async fn open(section: Option<Section>, state: Arc<AppState>, bus: Arc<Bus>) {
+///
+/// Synchronous on purpose: callers run in event handlers, which dioxus-desktop
+/// invokes on every event-loop tick. Routing this through a VirtualDom task
+/// made it unreliable, because the root VirtualDom belongs to the overlay,
+/// whose webview is hidden almost always; a hidden webview stops
+/// acknowledging edits, and its tasks then do not run until it next shows.
+/// Must be called on the main thread inside a dioxus-desktop runtime scope.
+pub fn open(section: Option<Section>, state: Arc<AppState>, bus: Arc<Bus>) {
     let existing =
         WINDOW.with_borrow(|window| window.as_ref().and_then(WeakDesktopContext::upgrade));
     if let Some(context) = existing {
@@ -74,16 +83,20 @@ pub async fn open(section: Option<Section>, state: Arc<AppState>, bus: Arc<Bus>)
         }
         return;
     }
+    if PENDING.get() {
+        // Already being created; it appears on its own.
+        return;
+    }
 
     let initial = section.unwrap_or(Section::Home);
     let show_in_dock = *bus.show_in_dock.borrow();
     let dom = VirtualDom::new_with_props(ManagedWindow, ManagedWindowProps { initial })
         .with_root_context(state)
         .with_root_context(bus);
-    // Shown by `ManagedWindow` once its webview has initialised: dioxus-desktop
-    // reapplies the root (overlay) window's hidden start state at that point.
-    let context = window().new_window(dom, config(show_in_dock)).await;
-    WINDOW.with_borrow_mut(|window| *window = Some(std::rc::Rc::downgrade(&context)));
+    // The event loop creates the window; it registers itself in `WINDOW` and
+    // shows itself from `ManagedWindow`, so the pending handle is not awaited.
+    PENDING.set(true);
+    drop(window().new_window(dom, config(show_in_dock)));
 }
 
 fn config(show_in_dock: bool) -> Config {
@@ -233,6 +246,8 @@ fn ManagedWindow(props: ManagedWindowProps) -> Element {
         let desktop = window();
         if !shown {
             shown = true;
+            WINDOW.with_borrow_mut(|w| *w = Some(std::rc::Rc::downgrade(&desktop)));
+            PENDING.set(false);
             desktop.window.set_visible(true);
             desktop.window.set_minimized(false);
             desktop.window.set_focus();

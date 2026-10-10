@@ -52,8 +52,10 @@ pub fn Root() -> Element {
         });
     }
 
-    // Main-thread queues: tray updates from the core, window requests from
-    // the tray, setup and (later) the screens.
+    // Main-thread queues: tray updates from the core, and the launch-time
+    // request to show setup. Tray clicks open the window directly instead
+    // (see `Tray::on_menu_event`): this task only runs when the overlay's
+    // VirtualDom is polled.
     use_future(move || {
         let receivers = bus.take_receivers();
         let tray = tray.clone();
@@ -73,7 +75,7 @@ pub fn Root() -> Element {
                         }
                     }
                     Some(section) = receivers.open_main.recv() => {
-                        crate::windows::open(section, Arc::clone(&state), Arc::clone(&bus)).await;
+                        crate::windows::open(section, Arc::clone(&state), Arc::clone(&bus));
                     }
                     Ok(()) = show_in_dock.changed() => {
                         crate::windows::apply_show_in_dock(*show_in_dock.borrow_and_update());

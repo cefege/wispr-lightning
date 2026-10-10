@@ -173,7 +173,7 @@ impl Tray {
 
     /// The notification-area icon's primary action. Windows only: macOS opens
     /// the menu on either button. Only `Up`, so dragging off cancels.
-    pub fn on_icon_event(&self, bus: &Bus, event: &TrayIconEvent) {
+    pub fn on_icon_event(&self, bus: &Arc<Bus>, event: &TrayIconEvent) {
         if cfg!(target_os = "macos") {
             return;
         }
@@ -183,11 +183,17 @@ impl Tray {
             ..
         } = event
         {
-            bus.open_main(Some(Section::Home));
+            crate::windows::open(
+                Some(Section::Home),
+                Arc::clone(&self.state),
+                Arc::clone(bus),
+            );
         }
     }
 
-    pub fn on_menu_event(&self, bus: &Bus, id: &str) {
+    /// Runs in a wry event handler, so it must not depend on any VirtualDom
+    /// task: window requests open the window directly.
+    pub fn on_menu_event(&self, bus: &Arc<Bus>, id: &str) {
         if id == ID_QUIT {
             // TRY-020.
             tracing::info!("quit requested from the tray");
@@ -197,12 +203,20 @@ impl Tray {
         }
 
         if id == ID_OPEN {
-            bus.open_main(Some(Section::Home));
+            crate::windows::open(
+                Some(Section::Home),
+                Arc::clone(&self.state),
+                Arc::clone(bus),
+            );
             return;
         }
 
         if id == ID_SETTINGS {
-            bus.open_main(Some(Section::General));
+            crate::windows::open(
+                Some(Section::General),
+                Arc::clone(&self.state),
+                Arc::clone(bus),
+            );
             return;
         }
 
